@@ -104,10 +104,10 @@ class LogParser:
         return 'unknown'
 
     def extract_service(self, line: str) -> Optional[str]:
-        match = re.search(r'\[(\w+)\]', line)
+        match = re.search(r'\[([\w-]+)\]', line)
         if match:
             return match.group(1)
-        match = re.search(r'(\w+)\s*:', line)
+        match = re.search(r'([A-Za-z_]+)\s*:', line)
         if match and match.group(1).isupper():
             return match.group(1)
         return None
