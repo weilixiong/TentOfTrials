@@ -68,6 +68,43 @@ MEMORY_THRESHOLD_CRITICAL = 90
 # CHECK FUNCTIONS
 # ---------------------------------------------------------------------------
 
+def _memory_from_sysconf() -> Optional[Tuple[int, int]]:
+    """Return total and available memory bytes using portable sysconf values."""
+    if not hasattr(os, "sysconf"):
+        return None
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        total_pages = os.sysconf("SC_PHYS_PAGES")
+        available_pages = os.sysconf("SC_AVPHYS_PAGES")
+    except (ValueError, OSError, AttributeError):
+        return None
+
+    if page_size <= 0 or total_pages <= 0 or available_pages < 0:
+        return None
+    return total_pages * page_size, available_pages * page_size
+
+
+def _memory_status(total: int, available: int) -> Tuple[str, str, float]:
+    used = max(total - available, 0)
+    pct = (used / total) * 100 if total > 0 else 0
+
+    if pct < MEMORY_THRESHOLD_WARNING:
+        return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+    if pct < MEMORY_THRESHOLD_CRITICAL:
+        return "WARNING", f"{pct:.1f}% used", pct
+    return "CRITICAL", f"{pct:.1f}% used", pct
+
+
+def _load_status(load: float) -> Tuple[str, str, float]:
+    cpu_count = os.cpu_count() or 1
+    load_pct = (load / cpu_count) * 100
+
+    if load_pct < 70:
+        return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    if load_pct < 90:
+        return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+
 def check_http_service(host: str, port: int, path: str, timeout: int) -> Tuple[str, str, int]:
     import http.client
     try:
@@ -165,15 +202,12 @@ def check_memory_usage() -> Tuple[str, str, float]:
 
         total = meminfo.get("MemTotal", 0)
         available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
-
-        if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-        elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
-        else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
+        return _memory_status(total, available)
+    except FileNotFoundError:
+        fallback = _memory_from_sysconf()
+        if fallback is None:
+            return "WARNING", "Cannot check: /proc/meminfo unavailable and sysconf fallback unsupported", 0
+        return _memory_status(*fallback)
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
 
@@ -183,15 +217,13 @@ def check_load_average() -> Tuple[str, str, float]:
         with open("/proc/loadavg") as f:
             parts = f.read().strip().split()
             load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
-
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+            return _load_status(load)
+    except FileNotFoundError:
+        try:
+            load = os.getloadavg()[0]
+        except (AttributeError, OSError):
+            return "WARNING", "Cannot check: /proc/loadavg unavailable and getloadavg fallback unsupported", 0
+        return _load_status(load)
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
 
