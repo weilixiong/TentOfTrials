@@ -1,0 +1,75 @@
+{
+  "generated_at": "2026-06-19T05:18:06.564085+00:00",
+  "commit": "bf2147ac",
+  "diagnostic_logd": "diagnostic/build-bf2147ac.logd",
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": "5a0a856e9525b61acd99",
+  "decrypt_command": "encryptly unpack diagnostic/build-bf2147ac.logd <outdir> --password 5a0a856e9525b61acd99",
+  "total_modules": 10,
+  "passed": 8,
+  "failed": 2,
+  "modules": [
+    {
+      "name": "backend",
+      "status": "PASS",
+      "elapsed_seconds": 18.873,
+      "artifact": "/mnt/c/Users/jarlyn/Documents/make money/weilixiong-tentoftrials-bounty5/backend/target"
+    },
+    {
+      "name": "frontend",
+      "status": "PASS",
+      "elapsed_seconds": 3.211,
+      "artifact": "/mnt/c/Users/jarlyn/Documents/make money/weilixiong-tentoftrials-bounty5/frontend/dist"
+    },
+    {
+      "name": "market",
+      "status": "FAIL",
+      "elapsed_seconds": 34.998,
+      "artifact": null
+    },
+    {
+      "name": "frailbox",
+      "status": "PASS",
+      "elapsed_seconds": 0.05,
+      "artifact": "/mnt/c/Users/jarlyn/Documents/make money/weilixiong-tentoftrials-bounty5/frailbox/frailbox"
+    },
+    {
+      "name": "engine",
+      "status": "PASS",
+      "elapsed_seconds": 0.955,
+      "artifact": "/mnt/c/Users/jarlyn/Documents/make money/weilixiong-tentoftrials-bounty5/frailbox/engine/build/trial-engine"
+    },
+    {
+      "name": "compliance",
+      "status": "PASS",
+      "elapsed_seconds": 0.57,
+      "artifact": "/mnt/c/Users/jarlyn/Documents/make money/weilixiong-tentoftrials-bounty5/compliance/build"
+    },
+    {
+      "name": "v2-market-stream",
+      "status": "PASS",
+      "elapsed_seconds": 0.018,
+      "artifact": null
+    },
+    {
+      "name": "nfc-scanner",
+      "status": "PASS",
+      "elapsed_seconds": 0.005,
+      "artifact": null
+    },
+    {
+      "name": "openapi-haskell",
+      "status": "FAIL",
+      "elapsed_seconds": 6.723,
+      "artifact": null
+    },
+    {
+      "name": "openapi-tools",
+      "status": "PASS",
+      "elapsed_seconds": 0.009,
+      "artifact": null
+    }
+  ],
+  "pr_note": "Include this metadata and diagnostic/build-bf2147ac.logd in your PR. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
