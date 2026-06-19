@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
 
+"""
+Tent of Trials - Multi-Language Build System.
+
+This module provides a unified build interface for compiling components across
+multiple languages including Rust, TypeScript, Go, C/C++, Java, Ruby, Lua, and Haskell.
+It manages dependencies, executes build commands, collects logs, and packages encrypted
+diagnostic bundles for troubleshooting.
+"""
+
 import argparse
 import datetime
 import getpass
