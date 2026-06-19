@@ -1,0 +1,80 @@
+{
+  "generated_at": "2026-06-19T14:25:45.316054+00:00",
+  "commit": "9659efd1",
+  "diagnostic_logd": [
+    "diagnostic/build-9659efd1-part001.logd",
+    "diagnostic/build-9659efd1-part002.logd",
+    "diagnostic/build-9659efd1-part003.logd",
+    "diagnostic/build-9659efd1-part004.logd"
+  ],
+  "chunked": true,
+  "chunk_size_bytes": 41943040,
+  "password": "cbc7af3146d522ee68f0",
+  "decrypt_command": "encryptly unpack diagnostic/build-9659efd1.logd <outdir> --password cbc7af3146d522ee68f0",
+  "total_modules": 10,
+  "passed": 7,
+  "failed": 3,
+  "modules": [
+    {
+      "name": "backend",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "frontend",
+      "status": "PASS",
+      "elapsed_seconds": 2.116,
+      "artifact": "/private/tmp/tentoftrials-weilixiong/frontend/dist"
+    },
+    {
+      "name": "market",
+      "status": "PASS",
+      "elapsed_seconds": 0.286,
+      "artifact": "/private/tmp/tentoftrials-weilixiong/market/market"
+    },
+    {
+      "name": "frailbox",
+      "status": "FAIL",
+      "elapsed_seconds": 0.211,
+      "artifact": null
+    },
+    {
+      "name": "engine",
+      "status": "PASS",
+      "elapsed_seconds": 0.162,
+      "artifact": "/private/tmp/tentoftrials-weilixiong/frailbox/engine/build/trial-engine"
+    },
+    {
+      "name": "compliance",
+      "status": "PASS",
+      "elapsed_seconds": 0.335,
+      "artifact": "/private/tmp/tentoftrials-weilixiong/compliance/build"
+    },
+    {
+      "name": "v2-market-stream",
+      "status": "PASS",
+      "elapsed_seconds": 0.059,
+      "artifact": null
+    },
+    {
+      "name": "nfc-scanner",
+      "status": "PASS",
+      "elapsed_seconds": 0.012,
+      "artifact": null
+    },
+    {
+      "name": "openapi-haskell",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "openapi-tools",
+      "status": "PASS",
+      "elapsed_seconds": 0.004,
+      "artifact": null
+    }
+  ],
+  "pr_note": "Include this metadata and diagnostic/build-9659efd1-part001.logd, diagnostic/build-9659efd1-part002.logd, diagnostic/build-9659efd1-part003.logd, diagnostic/build-9659efd1-part004.logd in your PR. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
