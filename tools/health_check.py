@@ -150,55 +150,107 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 
 def check_memory_usage() -> Tuple[str, str, float]:
+    """Cross-platform memory check with fallbacks for Linux, macOS, and Windows."""
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
-
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
-
-        if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-        elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
+        if os.path.exists("/proc/meminfo"):
+            with open("/proc/meminfo") as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip().replace(" kB", "")
+                        try:
+                            meminfo[key] = int(value) * 1024
+                        except ValueError:
+                            pass
+                total = meminfo.get("MemTotal", 0)
+                available = meminfo.get("MemAvailable", 0)
+                used = total - available
+                pct = (used / total) * 100 if total > 0 else 0
+                if pct < MEMORY_THRESHOLD_WARNING:
+                    return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+                elif pct < MEMORY_THRESHOLD_CRITICAL:
+                    return "WARNING", f"{pct:.1f}% used", pct
+                else:
+                    return "CRITICAL", f"{pct:.1f}% used", pct
+        elif sys.platform == "darwin":
+            import subprocess
+            result = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True)
+            total = int(result.stdout.strip())
+            result = subprocess.run(["vm_stat"], capture_output=True, text=True)
+            page_size = 4096
+            free_pages = 0
+            for line in result.stdout.split("\n"):
+                if "Pages free" in line:
+                    free_pages = int(line.split(":")[1].strip().rstrip("."))
+                elif "Pages inactive" in line:
+                    free_pages += int(line.split(":")[1].strip().rstrip("."))
+            free = free_pages * page_size
+            used = total - free
+            pct = (used / total) * 100 if total > 0 else 0
+            if pct < MEMORY_THRESHOLD_WARNING:
+                return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+            elif pct < MEMORY_THRESHOLD_CRITICAL:
+                return "WARNING", f"{pct:.1f}% used", pct
+            else:
+                return "CRITICAL", f"{pct:.1f}% used", pct
         else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
+            try:
+                import psutil
+                mem = psutil.virtual_memory()
+                pct = mem.percent
+                if pct < MEMORY_THRESHOLD_WARNING:
+                    return "OK", f"{pct:.1f}% used ({mem.used // (1024**3)}GB/{mem.total // (1024**3)}GB)", pct
+                elif pct < MEMORY_THRESHOLD_CRITICAL:
+                    return "WARNING", f"{pct:.1f}% used", pct
+                else:
+                    return "CRITICAL", f"{pct:.1f}% used", pct
+            except ImportError:
+                return "WARNING", "Memory check not available (install psutil for Windows support)", 0
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
 
-
 def check_load_average() -> Tuple[str, str, float]:
+    """Cross-platform CPU load check with fallbacks for Linux, macOS, and Windows."""
     try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
+        cpu_count = os.cpu_count() or 1
+        if os.path.exists("/proc/loadavg"):
+            with open("/proc/loadavg") as f:
+                parts = f.read().strip().split()
+                load = float(parts[0])
+                load_pct = (load / cpu_count) * 100
+                if load_pct < 70:
+                    return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                elif load_pct < 90:
+                    return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                else:
+                    return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        elif sys.platform == "darwin":
+            import subprocess
+            result = subprocess.run(["sysctl", "-n", "vm.loadavg"], capture_output=True, text=True)
+            load = float(result.stdout.strip().split()[1])
             load_pct = (load / cpu_count) * 100
-
             if load_pct < 70:
                 return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
             elif load_pct < 90:
                 return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
             else:
                 return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        else:
+            try:
+                import psutil
+                load_pct = psutil.cpu_percent(interval=1)
+                if load_pct < 70:
+                    return "OK", f"CPU: {load_pct:.0f}%", load_pct
+                elif load_pct < 90:
+                    return "WARNING", f"CPU: {load_pct:.0f}%", load_pct
+                else:
+                    return "CRITICAL", f"CPU: {load_pct:.0f}%", load_pct
+            except ImportError:
+                return "WARNING", "Load check not available (install psutil for Windows support)", 0
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
-
-
-# ---------------------------------------------------------------------------
-# HEALTH CHECK RUNNER
-# ---------------------------------------------------------------------------
 
 def run_health_checks(service: Optional[str] = None, json_output: bool = False) -> Dict[str, Any]:
     results: Dict[str, Any] = {
