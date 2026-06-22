@@ -150,50 +150,149 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 
 def check_memory_usage() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
+    """Check memory usage with cross-platform fallbacks.
+
+    Linux: Reads /proc/meminfo directly.
+    macOS: Uses vm_stat + sysctl for page-based memory stats.
+    Windows: Uses ctypes GlobalMemoryStatusEx.
+    Other/fallback: Returns WARNING with explanatory message.
+    """
+    total = None
+    available = None
+
+    # --- Linux: /proc/meminfo ---
+    if sys.platform.startswith("linux"):
+        try:
+            with open("/proc/meminfo") as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip().replace(" kB", "")
+                        try:
+                            meminfo[key] = int(value) * 1024
+                        except ValueError:
+                            pass
+            total = meminfo.get("MemTotal", 0)
+            available = meminfo.get("MemAvailable", 0)
+        except Exception:
+            pass
+
+    # --- macOS: vm_stat + sysctl ---
+    if total is None and sys.platform == "darwin":
+        try:
+            result = subprocess.run(
+                ["sysctl", "-n", "hw.memsize"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                total = int(result.stdout.strip())
+            result_ps = subprocess.run(
+                ["sysctl", "-n", "hw.pagesize"],
+                capture_output=True, text=True, timeout=5,
+            )
+            page_size = int(result_ps.stdout.strip()) if result_ps.returncode == 0 else 16384
+            result_vm = subprocess.run(
+                ["vm_stat"], capture_output=True, text=True, timeout=5,
+            )
+            free_pages = 0
+            inactive_pages = 0
+            for line in result_vm.stdout.split(chr(10)):
+                lower = line.lower()
+                if "pages free" in lower:
                     try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
+                        free_pages = int(line.split(":")[1].strip().rstrip("."))
+                    except (ValueError, IndexError):
                         pass
+                elif "pages inactive" in lower:
+                    try:
+                        inactive_pages = int(line.split(":")[1].strip().rstrip("."))
+                    except (ValueError, IndexError):
+                        pass
+            available = (free_pages + inactive_pages) * page_size
+        except Exception:
+            pass
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
+    # --- Windows: GlobalMemoryStatusEx ---
+    if total is None and sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+            mem_status = MEMORYSTATUSEX()
+            mem_status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            if kernel32.GlobalMemoryStatusEx(ctypes.byref(mem_status)):
+                total = mem_status.ullTotalPhys
+                available = mem_status.ullAvailPhys
+        except Exception:
+            pass
+
+    # --- Determine result ---
+    if total is not None and total > 0 and available is not None:
         used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
-
+        pct = (used / total) * 100
+        used_gb = used / (1024 ** 3)
+        total_gb = total / (1024 ** 3)
         if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+            return "OK", f"{pct:.1f}% used ({used_gb:.1f}GB/{total_gb:.1f}GB)", pct
         elif pct < MEMORY_THRESHOLD_CRITICAL:
             return "WARNING", f"{pct:.1f}% used", pct
         else:
             return "CRITICAL", f"{pct:.1f}% used", pct
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+
+    return "WARNING", f"Cannot check on {sys.platform}", 0
 
 
 def check_load_average() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+    """Check system load average with cross-platform fallbacks.
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+    Linux: Reads /proc/loadavg directly.
+    macOS/Unix: Uses os.getloadavg().
+    Windows: Returns WARNING (load average not available on Windows).
+    """
+    load = None
+
+    # --- Linux: /proc/loadavg ---
+    if sys.platform.startswith("linux"):
+        try:
+            with open("/proc/loadavg") as f:
+                parts = f.read().strip().split()
+                load = float(parts[0])
+        except Exception:
+            pass
+
+    # --- macOS / other Unix: os.getloadavg() ---
+    if load is None and hasattr(os, "getloadavg"):
+        try:
+            loads = os.getloadavg()
+            load = loads[0]
+        except Exception:
+            pass
+
+    # --- Determine result ---
+    if load is not None:
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load / cpu_count) * 100
+        if load_pct < 70:
+            return "OK", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
+        else:
+            return "CRITICAL", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
+
+    return "WARNING", f"Load average not available on {sys.platform}", 0
 
 
 # ---------------------------------------------------------------------------
