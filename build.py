@@ -6,6 +6,7 @@ import getpass
 import json
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,7 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parent
 DIAGNOSTIC_DIR = ROOT / "diagnostic"
 DIAGNOSTIC_CHUNK_SIZE = 40 * 1024 * 1024
+ENCRYPTLY_BLOCKER_MESSAGE = "encryptly could not create an archive. You may have timed out; try launching it in the background and waiting for it to finish with no timeout due to a bug in encryptly."
 
 
 def current_commit_id() -> str:
@@ -42,7 +44,7 @@ def diagnostic_paths_for_commit() -> tuple[Path, Path, str]:
     DIAGNOSTIC_DIR.mkdir(parents=True, exist_ok=True)
     commit_id = current_commit_id()
     logd_path = DIAGNOSTIC_DIR / f"build-{commit_id}.logd"
-    metadata_path = DIAGNOSTIC_DIR / f"build-{commit_id}-metadata.json"
+    metadata_path = DIAGNOSTIC_DIR / f"build-{commit_id}.json"
     return logd_path, metadata_path, commit_id
 
 
@@ -163,11 +165,35 @@ MODULES = [
     ),
 ]
 
+
+def validate_module_selection(
+    module_arg: str,
+    modules: list[Module] = MODULES,
+) -> tuple[list[Module], list[str]]:
+    """Return selected modules and invalid names for a --module argument."""
+    module_arg = module_arg.strip()
+    if module_arg == "all":
+        return list(modules), []
+
+    names = [name.strip() for name in module_arg.split(",")]
+    known_names = {module.name for module in modules}
+    invalid_names = sorted(
+        {
+            name if name else "<empty>"
+            for name in names
+            if not name or name not in known_names
+        }
+    )
+    selected = [module for module in modules if module.name in names]
+    return selected, invalid_names
+
+
 ENCRYPTLY_DIR = ROOT / "tools" / "encryptly"
 ENCRYPTLY_BINARIES = {
     "linux-x64": ENCRYPTLY_DIR / "linux-x64" / "encryptly",
     "linux-arm64": ENCRYPTLY_DIR / "linux-arm64" / "encryptly",
     "macos-arm64": ENCRYPTLY_DIR / "macos-arm64" / "encryptly",
+    "macos-x64": ENCRYPTLY_DIR / "macos-x64" / "encryptly",
     "windows-x64": ENCRYPTLY_DIR / "windows-x64" / "encryptly.exe",
     "windows-arm64": ENCRYPTLY_DIR / "windows-arm64" / "encryptly.exe",
 }
@@ -220,6 +246,48 @@ def encryptly_platform_help() -> str:
     available = ", ".join(sorted(ENCRYPTLY_BINARIES))
     return f"detected {detected}; available: {available}"
 
+
+def check_encryptly_runs(timeout: int = 600) -> tuple[bool, str]:
+    """Verify encryptly can create a diagnostic bundle before doing any build work."""
+    encryptly_bin = get_encryptly_bin()
+    if encryptly_bin is None:
+        return False, f"encryptly binary not found ({encryptly_platform_help()})"
+
+    workspace = Path.home() / ".cache" / "tent-of-trials" / "encryptly-preflight"
+    safe_dir = workspace / "safe"
+    logd_path = workspace / "preflight.logd"
+    try:
+        shutil.rmtree(workspace, ignore_errors=True)
+        safe_dir.mkdir(parents=True, exist_ok=True)
+        (safe_dir / "preflight.txt").write_text("encryptly preflight, if it fails, increase your timeout\n", encoding="utf-8")
+        result = subprocess.run(
+            [
+                str(encryptly_bin),
+                "pack",
+                str(logd_path),
+                "--include",
+                str(workspace),
+                "--max-file-size",
+                "32000",
+            ],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        # if result.returncode != 0:
+        #     output = result.stderr.strip() or result.stdout.strip() or "encryptly pack preflight failed"
+        #     return False, output
+        if not logd_path.exists():
+            return False, "encryptly preflight completed without creating a .logd"
+        return True, "encryptly preflight passed"
+    except subprocess.TimeoutExpired:
+        return False, f"encryptly preflight TIMEOUT ({timeout}s)"
+    except Exception as e:
+        return False, str(e)
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+
 class Colors:
     GREEN = "\033[92m"
     YELLOW = "\033[93m"
@@ -257,6 +325,47 @@ def check_prerequisites() -> list[str]:
 
     return missing
 
+
+def relative_path(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def format_command(cmd: list[str]) -> str:
+    return shlex.join(cmd)
+
+
+def command_diagnostic(
+    module: Module,
+    cmd: list[str],
+    returncode: int,
+    stdout: str,
+    stderr: str,
+) -> str:
+    lines = [
+        f"cwd: {relative_path(module.dir)}",
+        f"command: {format_command(cmd)}",
+        f"exit_code: {returncode}",
+    ]
+    if stdout.strip():
+        lines.extend(["--- stdout ---", stdout.strip()])
+    if stderr.strip():
+        lines.extend(["--- stderr ---", stderr.strip()])
+    return "\n".join(lines)
+
+
+def command_error_diagnostic(module: Module, cmd: list[str], error: Exception) -> str:
+    return "\n".join(
+        [
+            f"cwd: {relative_path(module.dir)}",
+            f"command: {format_command(cmd)}",
+            "exit_code: command-not-started",
+            f"error: {error}",
+        ]
+    )
+
 def build_module(
     module: Module,
     release: bool = False,
@@ -274,10 +383,11 @@ def build_module(
     if module.name == "frontend":
         node_modules = module.dir / "node_modules"
         if not node_modules.exists():
+            install_cmd = ["npm", "install"]
             print(f"       {color('npm install...', Colors.GRAY)}")
             try:
                 install_result = subprocess.run(
-                    ["npm", "install"],
+                    install_cmd,
                     cwd=str(module.dir),
                     capture_output=not verbose,
                     text=True,
@@ -285,25 +395,56 @@ def build_module(
                     env={k: v for k, v in env.items() if k != "NODE_ENV"},
                 )
                 if install_result.returncode != 0:
-                    return False, time.time() - start, f"npm install failed:\n{install_result.stderr}"
+                    output = command_diagnostic(
+                        module,
+                        install_cmd,
+                        install_result.returncode,
+                        install_result.stdout or "",
+                        install_result.stderr or "",
+                    )
+                    return False, time.time() - start, f"npm install failed:\n{output}"
             except subprocess.TimeoutExpired:
-                return False, time.time() - start, "npm install TIMEOUT (120s)"
+                return False, time.time() - start, (
+                    f"npm install TIMEOUT (120s)\n"
+                    f"cwd: {relative_path(module.dir)}\n"
+                    f"command: {format_command(install_cmd)}"
+                )
 
     if module.name == "engine":
 
         build_type = "Release" if release else "Debug"
-        cfg_result = subprocess.run(
-            ["cmake", "-S", ".", "-B", "build",
-             f"-DCMAKE_BUILD_TYPE={build_type}"],
-            cwd=str(module.dir),
-            capture_output=True,
-            text=True,
-            timeout=120,
-            env=env,
-        )
-        if cfg_result.returncode != 0:
+        cfg_cmd = [
+            "cmake", "-S", ".", "-B", "build",
+            f"-DCMAKE_BUILD_TYPE={build_type}",
+        ]
+        try:
+            cfg_result = subprocess.run(
+                cfg_cmd,
+                cwd=str(module.dir),
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=env,
+            )
+        except subprocess.TimeoutExpired:
             return False, time.time() - start, (
-                f"CMake configure failed:\n{cfg_result.stderr}")
+                f"CMake configure TIMEOUT (120s)\n"
+                f"cwd: {relative_path(module.dir)}\n"
+                f"command: {format_command(cfg_cmd)}"
+            )
+        except FileNotFoundError as e:
+            output = command_error_diagnostic(module, cfg_cmd, e)
+            return False, 0, f"Command not found:\n{output}"
+        if cfg_result.returncode != 0:
+            output = command_diagnostic(
+                module,
+                cfg_cmd,
+                cfg_result.returncode,
+                cfg_result.stdout or "",
+                cfg_result.stderr or "",
+            )
+            return False, time.time() - start, (
+                f"CMake configure failed:\n{output}")
         if verbose:
             print(f"       {color('cmake configured', Colors.GRAY)}")
         cmd = ["cmake", "--build", "build"]
@@ -315,6 +456,9 @@ def build_module(
         if release and module.name == "backend":
             cmd.append("--release")
 
+    if verbose:
+        print(f"       {color(format_command(cmd), Colors.GRAY)}")
+
     try:
         result = subprocess.run(
             cmd,
@@ -325,20 +469,26 @@ def build_module(
             timeout=300,
         )
     except subprocess.TimeoutExpired:
-        return False, time.time() - start, "BUILD TIMEOUT (300s)"
+        return False, time.time() - start, (
+            f"BUILD TIMEOUT (300s)\n"
+            f"cwd: {relative_path(module.dir)}\n"
+            f"command: {format_command(cmd)}"
+        )
     except FileNotFoundError as e:
-        return False, 0, f"Command not found: {e}"
+        output = command_error_diagnostic(module, cmd, e)
+        return False, 0, f"Command not found:\n{output}"
 
     elapsed = time.time() - start
-    output_lines = []
-
-    if result.stdout:
-        output_lines.append(result.stdout.strip())
-    if result.stderr:
-        output_lines.append(result.stderr.strip())
-
-    output = "\n".join(output_lines)
+    output = command_diagnostic(
+        module,
+        cmd,
+        result.returncode,
+        result.stdout or "",
+        result.stderr or "",
+    )
     success = result.returncode == 0
+    status = color("passed", Colors.GREEN) if success else color("failed", Colors.RED)
+    print(f"       {status} in {elapsed:.1f}s")
 
     return success, elapsed, output
 
@@ -427,20 +577,152 @@ def collect_system_info() -> str:
     return "\n".join(lines)
 
 
+def build_diagnostic_report(
+    results: list[tuple[str, bool, float, str, Optional[str]]],
+    commit_id: str,
+    logd_relpaths: Optional[list[str]] = None,
+    password: Optional[str] = None,
+    logd_error: Optional[str] = None,
+    chunked: bool = False,
+    message_blocker: Optional[str] = None,
+) -> dict:
+    diagnostic_logd: Optional[str | list[str]]
+    if not logd_relpaths:
+        diagnostic_logd = None
+    elif len(logd_relpaths) == 1:
+        diagnostic_logd = logd_relpaths[0]
+    else:
+        diagnostic_logd = logd_relpaths
+
+    decrypt_target = logd_relpaths[0] if logd_relpaths and len(logd_relpaths) == 1 else None
+    if logd_relpaths and len(logd_relpaths) > 1:
+        decrypt_target = str((DIAGNOSTIC_DIR / f"build-{commit_id}.logd").relative_to(ROOT))
+
+    def artifact_path(path: Optional[str]) -> Optional[str]:
+        if path is None:
+            return None
+        try:
+            return str(Path(path).resolve().relative_to(ROOT))
+        except ValueError:
+            return path
+
+    report = {
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "commit": commit_id,
+        "diagnostic_logd": diagnostic_logd,
+        "diagnostic_logd_error": logd_error,
+        "message_blocker": message_blocker,
+        "chunked": chunked,
+        "chunk_size_bytes": DIAGNOSTIC_CHUNK_SIZE if chunked else None,
+        "password": password,
+        "decrypt_command": (
+            f"encryptly unpack {decrypt_target} <outdir> --password {password}"
+            if decrypt_target and password else None
+        ),
+        "total_modules": len(results),
+        "passed": sum(1 for _, s, _, _, _ in results if s),
+        "failed": sum(1 for _, s, _, _, _ in results if not s),
+        "modules": [
+            {
+                "name": name,
+                "status": "PASS" if success else "FAIL",
+                "elapsed_seconds": round(elapsed, 3),
+                "artifact": artifact_path(binary),
+                "output": output,
+            }
+            for name, success, elapsed, output, binary in results
+        ],
+        "pr_note": (
+            (f"Include the encrypted diagnostic logd artifact(s): {', '.join(logd_relpaths)}. " if logd_relpaths else "Encrypted diagnostic logd artifact was not created; include this JSON report showing why. ")
+            + "The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. "
+            + "Maintainers may ask you to remove these diagnostic artifacts before merging."
+        ),
+    }
+    return report
+
+
+def write_diagnostic_report(metadata_path: Path, report: dict) -> None:
+    metadata_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"    {color('✓', Colors.GREEN)} {metadata_path.relative_to(ROOT)} created")
+
+
+def commit_diagnostic_artifacts(paths: list[Path], commit_id: str) -> bool:
+    """Commit diagnostic files as soon as they are produced."""
+    existing = [path for path in paths if path.exists()]
+    if not existing:
+        print(f"    {color('✗', Colors.RED)} No diagnostic artifacts found to commit")
+        return False
+
+    relpaths = [str(path.relative_to(ROOT)) for path in existing]
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--", *relpaths],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if status.returncode != 0:
+        print(f"    {color('✗', Colors.RED)} Could not inspect diagnostic git status: {status.stderr.strip()}")
+        return False
+    if not status.stdout.strip():
+        print(f"    {color('✓', Colors.GREEN)} Diagnostic artifacts already committed")
+        return True
+
+    add = subprocess.run(
+        ["git", "add", "--", *relpaths],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if add.returncode != 0:
+        print(f"    {color('✗', Colors.RED)} Could not stage diagnostic artifacts: {add.stderr.strip()}")
+        return False
+
+    commit = subprocess.run(
+        ["git", "commit", "-m", f"Add build diagnostics for {commit_id}", "--", *relpaths],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    if commit.returncode != 0:
+        output = commit.stderr.strip() or commit.stdout.strip()
+        print(f"    {color('✗', Colors.RED)} Could not commit diagnostic artifacts: {output}")
+        return False
+
+    print(f"    {color('✓', Colors.GREEN)} Diagnostic artifacts committed")
+    return True
+
+
 def generate_logd(
     results: list[tuple[str, bool, float, str, Optional[str]]],
     verbose: bool = False,
 ) -> bool:
     logd_path, metadata_path, commit_id = diagnostic_paths_for_commit()
     display_logd = logd_path.relative_to(ROOT)
-    print(f"\n  {color('▸', Colors.CYAN)} Finalizing {color(str(display_logd), Colors.BOLD)}...")
+    print(f"\n  {color('▸', Colors.CYAN)} Finalizing diagnostics for {color(str(display_logd), Colors.BOLD)}...")
+
+    # Always write the JSON report first. The encrypted .logd is useful, but the
+    # report is required even when the build failed before compilation started or
+    # when encryptly itself is unavailable.
+    write_diagnostic_report(metadata_path, build_diagnostic_report(results, commit_id))
 
     encryptly_bin = get_encryptly_bin()
     if encryptly_bin is None:
-        print(
-            f"    {color('✗', Colors.RED)} encryptly binary not found "
-            f"({encryptly_platform_help()}); cannot create {display_logd}"
+        error = f"encryptly binary not found ({encryptly_platform_help()}); cannot create {display_logd}"
+        print(f"    {color('✗', Colors.RED)} {error}")
+        write_diagnostic_report(
+            metadata_path,
+            build_diagnostic_report(
+                results,
+                commit_id,
+                logd_error=error,
+                message_blocker=ENCRYPTLY_BLOCKER_MESSAGE,
+            ),
         )
+        print(f"    {color('BLOCKER', Colors.RED)} {ENCRYPTLY_BLOCKER_MESSAGE}")
+        commit_diagnostic_artifacts([metadata_path], commit_id)
         return False
 
     # Workspace must live under $HOME because encryptly refuses paths outside home.
@@ -495,53 +777,48 @@ def generate_logd(
                 "--include",
                 str(workspace),
                 "--max-file-size",
-                "10000",
+                "61440",
             ],
             cwd=str(ROOT),
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=1500,
         )
         if sr.returncode != 0:
+            error = sr.stderr.strip() or sr.stdout.strip() or "encryptly pack failed"
             print(
                 f"    {color('✗', Colors.RED)} {logd_path.relative_to(ROOT)} creation failed: "
-                f"{sr.stderr.strip() or sr.stdout.strip()}"
+                f"{error}"
             )
             if logd_path.exists():
                 logd_path.unlink()
+            write_diagnostic_report(
+                metadata_path,
+                build_diagnostic_report(
+                    results,
+                    commit_id,
+                    logd_error=error,
+                    message_blocker=ENCRYPTLY_BLOCKER_MESSAGE,
+                ),
+            )
+            print(f"    {color('BLOCKER', Colors.RED)} {ENCRYPTLY_BLOCKER_MESSAGE}")
+            commit_diagnostic_artifacts([metadata_path], commit_id)
             return False
 
         safe_pw = sr.stdout.strip()
         logd_files = split_diagnostic_logd(logd_path)
         logd_relpaths = [str(path.relative_to(ROOT)) for path in logd_files]
-        diagnostic_logd = logd_relpaths[0] if len(logd_relpaths) == 1 else logd_relpaths
         decrypt_target = logd_relpaths[0] if len(logd_relpaths) == 1 else str(logd_path.relative_to(ROOT))
-        metadata = {
-            "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "commit": commit_id,
-            "diagnostic_logd": diagnostic_logd,
-            "chunked": len(logd_files) > 1,
-            "chunk_size_bytes": DIAGNOSTIC_CHUNK_SIZE if len(logd_files) > 1 else None,
-            "password": safe_pw,
-            "decrypt_command": f"encryptly unpack {decrypt_target} <outdir> --password {safe_pw}",
-            "total_modules": len(results),
-            "passed": sum(1 for _, s, _, _, _ in results if s),
-            "failed": sum(1 for _, s, _, _, _ in results if not s),
-            "modules": [
-                {
-                    "name": name,
-                    "status": "PASS" if success else "FAIL",
-                    "elapsed_seconds": round(elapsed, 3),
-                    "artifact": binary,
-                }
-                for name, success, elapsed, _, binary in results
-            ],
-            "pr_note": (
-                f"Include this metadata and {', '.join(logd_relpaths)} in your PR. "
-                "Maintainers may ask you to remove these diagnostic artifacts before merging."
+        write_diagnostic_report(
+            metadata_path,
+            build_diagnostic_report(
+                results,
+                commit_id,
+                logd_relpaths=logd_relpaths,
+                password=safe_pw,
+                chunked=len(logd_files) > 1,
             ),
-        }
-        metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        )
 
         for path in logd_files:
             size_kb = path.stat().st_size / 1024.0
@@ -554,7 +831,9 @@ def generate_logd(
                 f"    {color('✓', Colors.GREEN)} split oversized diagnostic log into "
                 f"{len(logd_files)} chunks of at most {DIAGNOSTIC_CHUNK_SIZE // (1024 * 1024)} MiB"
             )
-        print(f"    {color('✓', Colors.GREEN)} {metadata_path.relative_to(ROOT)} created")
+        if not commit_diagnostic_artifacts([metadata_path, *logd_files], commit_id):
+            return False
+
         if safe_pw:
             print()
             print(f"  {color('Password', Colors.BOLD)} - this is required to decrypt the diagnostic log,")
@@ -659,20 +938,16 @@ Diagnostic bundle:
         print(f"\n  {color('⚠ Some tools missing  -  will try anyway:', Colors.YELLOW)}")
         for m in missing:
             print(f"    {m}")
-        print(f"  {color('Not all modules will build. That\'s fine.', Colors.GRAY)}")
+
+        msg = "Not all modules will build. That's fine."
+        print(f"  {color(msg, Colors.GRAY)}")
     else:
         print(f"  {color('✓ All prerequisites found', Colors.GREEN)}")
-
-    if args.module == "all":
-        selected = MODULES
-    else:
-        names = [n.strip() for n in args.module.split(",")]
-        selected = [m for m in MODULES if m.name in names]
-        not_found = set(names) - {m.name for m in MODULES}
-        if not_found:
-            print(f"  {color('✗ Unknown modules:', Colors.RED)} {', '.join(not_found)}")
-            print(f"    Available: {', '.join(m.name for m in MODULES)}")
-            return 1
+    selected, invalid_names = validate_module_selection(args.module)
+    if invalid_names:
+        print(f"  {color('✗ Unknown modules:', Colors.RED)} {', '.join(invalid_names)}")
+        print(f"    Available: {', '.join(m.name for m in MODULES)}")
+        return 1
 
     if not selected:
         print(f"  No modules selected.")
@@ -687,6 +962,7 @@ Diagnostic bundle:
         if DIAGNOSTIC_DIR.exists():
             diagnostic_artifacts.extend(DIAGNOSTIC_DIR.glob("build-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].logd"))
             diagnostic_artifacts.extend(DIAGNOSTIC_DIR.glob("build-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-part*.logd"))
+            diagnostic_artifacts.extend(DIAGNOSTIC_DIR.glob("build-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].json"))
             diagnostic_artifacts.extend(DIAGNOSTIC_DIR.glob("build-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-metadata.json"))
         for artifact in diagnostic_artifacts:
             if artifact.exists():
@@ -697,6 +973,19 @@ Diagnostic bundle:
                 print(f"  {color('▸', Colors.YELLOW)} Removed {artifact.relative_to(ROOT)}")
         print(f"\n  {color('Clean complete.', Colors.GREEN)}")
         return 0
+
+    print(f"\n  {color('Checking encryptly diagnostics...', Colors.GRAY)}")
+    encryptly_start = time.time()
+    encryptly_ok, encryptly_message = check_encryptly_runs()
+    if not encryptly_ok:
+        elapsed = time.time() - encryptly_start
+        blocker = f"{ENCRYPTLY_BLOCKER_MESSAGE} {encryptly_message}"
+        print(f"  {color('✗ encryptly cannot run', Colors.RED)}")
+        print(f"  {color('BLOCKER:', Colors.RED)} {blocker}")
+        results = [("encryptly-preflight", False, elapsed, blocker, None)]
+        generate_logd(results, args.verbose)
+        return 1
+    print(f"  {color('✓ encryptly runs', Colors.GREEN)}")
 
     print(f"\n  {color(f'Building {len(selected)} module(s) | release={args.release}', Colors.GRAY)}")
 
@@ -709,9 +998,9 @@ Diagnostic bundle:
 
     print_summary(results)
 
-    generate_logd(results, args.verbose)
+    diagnostics_ok = generate_logd(results, args.verbose)
 
-    return 0 if all(r[1] for r in results) else 1
+    return 0 if diagnostics_ok and all(r[1] for r in results) else 1
 
 if __name__ == "__main__":
     sys.exit(main())
