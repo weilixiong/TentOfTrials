@@ -149,10 +149,11 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
         return "WARNING", f"Cannot check: {e}", 0
 
 
-def check_memory_usage() -> Tuple[str, str, float]:
+def _memory_from_proc() -> Optional[Tuple[float, float]]:
+    """Read memory usage from /proc/meminfo (Linux)."""
     try:
+        meminfo = {}
         with open("/proc/meminfo") as f:
-            meminfo = {}
             for line in f:
                 parts = line.split(":")
                 if len(parts) == 2:
@@ -162,10 +163,82 @@ def check_memory_usage() -> Tuple[str, str, float]:
                         meminfo[key] = int(value) * 1024
                     except ValueError:
                         pass
-
         total = meminfo.get("MemTotal", 0)
         available = meminfo.get("MemAvailable", 0)
-        used = total - available
+        if total == 0:
+            return None
+        return total, total - available
+    except (FileNotFoundError, OSError):
+        return None
+
+
+def _memory_from_sysctl() -> Optional[Tuple[float, float]]:
+    """Read memory usage via sysctl (macOS/BSD)."""
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "hw.memsize", "hw.pagesize", "vm.page_pageable_internal_count",
+             "vm.page_free_count"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        lines = result.stdout.strip().split()
+        if len(lines) < 2:
+            return None
+        total = int(lines[0])
+        page_size = int(lines[1])
+        pageable = int(lines[2]) if len(lines) > 2 else 0
+        free = int(lines[3]) if len(lines) > 3 else 0
+        used = (pageable - free) * page_size
+        return total, used
+    except Exception:
+        return None
+
+
+def _memory_from_wmic() -> Optional[Tuple[float, float]]:
+    """Read memory usage via ctypes (Windows)."""
+    try:
+        import ctypes
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_uint32),
+                ("dwMemoryLoad", ctypes.c_uint32),
+                ("ullTotalPhys", ctypes.c_uint64),
+                ("ullAvailPhys", ctypes.c_uint64),
+                ("ullTotalPageFile", ctypes.c_uint64),
+                ("ullAvailPageFile", ctypes.c_uint64),
+                ("ullTotalVirtual", ctypes.c_uint64),
+                ("ullAvailVirtual", ctypes.c_uint64),
+                ("ullAvailExtendedVirtual", ctypes.c_uint64),
+            ]
+        mem = MEMORYSTATUSEX()
+        mem.dwLength = ctypes.sizeof(mem)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem))
+        total = mem.ullTotalPhys
+        available = mem.ullAvailPhys
+        if total > 0:
+            return total, total - available
+    except Exception:
+        pass
+
+    return None
+
+
+def _memory_fallback() -> Tuple[float, float]:
+    """Try platform-specific memory probes; return (total, used) or raise."""
+    # On Windows, ctypes is the only reliable path (WMIC may hang in some shells)
+    result = _memory_from_wmic()
+    if result is not None:
+        return result
+    raise OSError("No cross-platform memory probe available")
+
+
+def check_memory_usage() -> Tuple[str, str, float]:
+    try:
+        mem = _memory_from_proc()
+        if mem is None:
+            mem = _memory_fallback()
+        total, used = mem
         pct = (used / total) * 100 if total > 0 else 0
 
         if pct < MEMORY_THRESHOLD_WARNING:
@@ -178,20 +251,39 @@ def check_memory_usage() -> Tuple[str, str, float]:
         return "WARNING", f"Cannot check: {e}", 0
 
 
-def check_load_average() -> Tuple[str, str, float]:
+def _load_from_proc() -> Optional[float]:
+    """Read load average from /proc/loadavg (Linux)."""
     try:
         with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+            return float(f.read().strip().split()[0])
+    except (FileNotFoundError, OSError):
+        return None
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+
+def _load_from_os() -> Optional[float]:
+    """Read load average via os.getloadavg() (Unix/macOS)."""
+    try:
+        return os.getloadavg()[0]
+    except (OSError, AttributeError):
+        return None
+
+
+def check_load_average() -> Tuple[str, str, float]:
+    load = _load_from_proc() or _load_from_os()
+
+    try:
+        if load is None:
+            raise OSError("No load average available")
+
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load / cpu_count) * 100
+
+        if load_pct < 70:
+            return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        else:
+            return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
 
