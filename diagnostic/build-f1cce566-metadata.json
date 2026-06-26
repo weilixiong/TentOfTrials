@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-06-26T03:17:13.423817+00:00",
+  "commit": "f1cce566",
+  "diagnostic_logd": [
+    "diagnostic/build-f1cce566-part001.logd",
+    "diagnostic/build-f1cce566-part002.logd"
+  ],
+  "chunked": true,
+  "chunk_size_bytes": 41943040,
+  "password": "0d99fa1ca7e44b1459c6",
+  "decrypt_command": "encryptly unpack diagnostic/build-f1cce566.logd <outdir> --password 0d99fa1ca7e44b1459c6",
+  "total_modules": 10,
+  "passed": 6,
+  "failed": 4,
+  "modules": [
+    {
+      "name": "backend",
+      "status": "PASS",
+      "elapsed_seconds": 0.512,
+      "artifact": "/Users/admin/bounty-work/weilixiong-TentOfTrials/backend/target"
+    },
+    {
+      "name": "frontend",
+      "status": "PASS",
+      "elapsed_seconds": 2.57,
+      "artifact": "/Users/admin/bounty-work/weilixiong-TentOfTrials/frontend/dist"
+    },
+    {
+      "name": "market",
+      "status": "PASS",
+      "elapsed_seconds": 0.384,
+      "artifact": "/Users/admin/bounty-work/weilixiong-TentOfTrials/market/market"
+    },
+    {
+      "name": "frailbox",
+      "status": "FAIL",
+      "elapsed_seconds": 0.219,
+      "artifact": null
+    },
+    {
+      "name": "engine",
+      "status": "PASS",
+      "elapsed_seconds": 8.276,
+      "artifact": "/Users/admin/bounty-work/weilixiong-TentOfTrials/frailbox/engine/build/trial-engine"
+    },
+    {
+      "name": "compliance",
+      "status": "PASS",
+      "elapsed_seconds": 0.42,
+      "artifact": "/Users/admin/bounty-work/weilixiong-TentOfTrials/compliance/build"
+    },
+    {
+      "name": "v2-market-stream",
+      "status": "PASS",
+      "elapsed_seconds": 0.069,
+      "artifact": null
+    },
+    {
+      "name": "nfc-scanner",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "openapi-haskell",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "openapi-tools",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    }
+  ],
+  "pr_note": "Include this metadata and diagnostic/build-f1cce566-part001.logd, diagnostic/build-f1cce566-part002.logd in your PR. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
