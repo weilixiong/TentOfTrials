@@ -112,6 +112,25 @@ class LogParser:
             return match.group(1)
         return None
 
+    def normalize_timestamp(self, value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            try:
+                iso_text = text[:-1] + "+00:00" if text.endswith("Z") else text
+                dt = datetime.fromisoformat(iso_text)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return int(dt.timestamp())
+            except ValueError:
+                return self.extract_timestamp(text)
+        return None
+
 
 class JSONLogParser(LogParser):
     """Parses structured JSON log lines."""
@@ -121,8 +140,9 @@ class JSONLogParser(LogParser):
             entry = json.loads(line.strip())
             if not isinstance(entry, dict):
                 return None
+            timestamp = entry.get('timestamp') or entry.get('time') or entry.get('@timestamp')
             return {
-                'timestamp': entry.get('timestamp') or entry.get('time') or entry.get('@timestamp'),
+                'timestamp': self.normalize_timestamp(timestamp),
                 'level': entry.get('level') or entry.get('severity') or entry.get('lvl', 'info'),
                 'service': entry.get('service') or entry.get('logger') or entry.get('app'),
                 'message': entry.get('message') or entry.get('msg') or entry.get('event', ''),
