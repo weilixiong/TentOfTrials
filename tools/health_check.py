@@ -171,9 +171,7 @@ def check_memory_usage() -> Tuple[str, str, float]:
             used = total - available
             pct = (used / total) * 100 if total > 0 else 0
         else:
-            # Cross-platform fallback using resource module (macOS/BSD)
-            import resource
-            # Get total memory from sysctl or resource limits
+            # Cross-platform fallback for macOS/BSD
             # On macOS, we can use subprocess to get memory info
             try:
                 result = subprocess.run(
