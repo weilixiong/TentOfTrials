@@ -150,50 +150,104 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 
 def check_memory_usage() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
+    meminfo_path = "/proc/meminfo"
+    if os.path.isfile(meminfo_path):
+        try:
+            with open(meminfo_path) as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip().replace(" kB", "")
+                        try:
+                            meminfo[key] = int(value) * 1024
+                        except ValueError:
+                            pass
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
+            total = meminfo.get("MemTotal", 0)
+            available = meminfo.get("MemAvailable", 0)
+            used = total - available
+            pct = (used / total) * 100 if total > 0 else 0
+
+            if pct < MEMORY_THRESHOLD_WARNING:
+                return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+            elif pct < MEMORY_THRESHOLD_CRITICAL:
+                return "WARNING", f"{pct:.1f}% used", pct
+            else:
+                return "CRITICAL", f"{pct:.1f}% used", pct
+        except Exception as e:
+            return "WARNING", f"Cannot check: {e}", 0
+
+    return _check_memory_usage_fallback()
+
+
+def _check_memory_usage_fallback() -> Tuple[str, str, float]:
+    """Cross-platform memory check when /proc/meminfo is unavailable."""
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        phys_pages = os.sysconf("SC_PHYS_PAGES")
+        avail_pages = os.sysconf("SC_AVPHYS_PAGES")
+        total = int(page_size * phys_pages)
+        available = int(page_size * avail_pages)
         used = total - available
         pct = (used / total) * 100 if total > 0 else 0
-
+        detail = f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB, fallback)"
         if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-        elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
-        else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
+            return "OK", detail, pct
+        if pct < MEMORY_THRESHOLD_CRITICAL:
+            return "WARNING", detail, pct
+        return "CRITICAL", detail, pct
+    except (AttributeError, OSError, ValueError):
+        pass
+
+    try:
+        import shutil
+
+        usage = shutil.disk_usage("/")
+        # Without memory APIs, report root filesystem usage as a coarse signal.
+        pct = (usage.used / usage.total) * 100 if usage.total > 0 else 0
+        detail = f"Memory unavailable; root disk {pct:.1f}% used (fallback)"
+        if pct < MEMORY_THRESHOLD_WARNING:
+            return "OK", detail, pct
+        if pct < MEMORY_THRESHOLD_CRITICAL:
+            return "WARNING", detail, pct
+        return "CRITICAL", detail, pct
     except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+        return "WARNING", f"Cannot check memory: {e}", 0
 
 
 def check_load_average() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+    loadavg_path = "/proc/loadavg"
+    if os.path.isfile(loadavg_path):
+        try:
+            with open(loadavg_path) as f:
+                parts = f.read().strip().split()
+                load = float(parts[0])
+                cpu_count = os.cpu_count() or 1
+                load_pct = (load / cpu_count) * 100
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+                if load_pct < 70:
+                    return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                elif load_pct < 90:
+                    return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                else:
+                    return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        except Exception as e:
+            return "WARNING", f"Cannot check: {e}", 0
+
+    try:
+        load = os.getloadavg()[0]
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load / cpu_count) * 100
+        detail = f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores, fallback)"
+        if load_pct < 70:
+            return "OK", detail, load
+        if load_pct < 90:
+            return "WARNING", detail, load
+        return "CRITICAL", detail, load
+    except (AttributeError, OSError) as e:
+        return "WARNING", f"Cannot check load average: {e}", 0
 
 
 # ---------------------------------------------------------------------------
