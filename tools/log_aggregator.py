@@ -113,6 +113,26 @@ class LogParser:
         return None
 
 
+def normalize_timestamp(value: Any) -> Optional[int]:
+    """Return epoch seconds for parser timestamps used by aggregator counters."""
+    if isinstance(value, (int, float)):
+        return int(value)
+    if not isinstance(value, str) or not value:
+        return None
+
+    for fmt in [
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+    ]:
+        try:
+            dt = datetime.strptime(value, fmt)
+            return int(dt.replace(tzinfo=timezone.utc).timestamp())
+        except ValueError:
+            continue
+    return None
+
+
 class JSONLogParser(LogParser):
     """Parses structured JSON log lines."""
 
@@ -187,7 +207,7 @@ class NginxLogParser(LogParser):
             'message': match.group(5),
             'fields': {
                 'remote_addr': match.group(1),
-                'remote_user': match.group(2),
+                'remote_user': match.group(3),
                 'request': match.group(5),
                 'status': status_code,
                 'body_bytes': match.group(7),
@@ -204,7 +224,7 @@ class NginxLogParser(LogParser):
 
 class LogAggregator:
     def __init__(self):
-        self.parsers = [JSONLogParser(), TextLogParser(), NginxLogParser()]
+        self.parsers = [JSONLogParser(), NginxLogParser(), TextLogParser()]
         self.entries: List[Dict[str, Any]] = []
         self.level_counts: Counter = Counter()
         self.service_counts: Counter = Counter()
@@ -245,7 +265,7 @@ class LogAggregator:
             entry = parser.parse(line)
             if entry:
                 self.entries.append(entry)
-                ts = entry.get('timestamp')
+                ts = normalize_timestamp(entry.get('timestamp'))
                 if ts:
                     hour = datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%dT%H:00')
                     self.hourly_counts[hour] += 1
@@ -279,8 +299,8 @@ class LogAggregator:
 
     def _get_time_range(self) -> Optional[Dict[str, str]]:
         timestamps = [
-            e['timestamp'] for e in self.entries
-            if e.get('timestamp')
+            normalized for e in self.entries
+            if (normalized := normalize_timestamp(e.get('timestamp')))
         ]
         if not timestamps:
             return None
@@ -302,7 +322,7 @@ class LogAggregator:
         for entry in self.entries:
             level = entry.get('level', '').lower()
             if level in ('error', 'critical'):
-                ts = entry.get('timestamp')
+                ts = normalize_timestamp(entry.get('timestamp'))
                 if ts:
                     hour = datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%dT%H:00')
                     errors_by_hour[hour] += 1
