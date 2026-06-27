@@ -33,6 +33,8 @@ Usage:
 import argparse
 import json
 import os
+import platform
+import shutil
 import socket
 import ssl
 import subprocess
@@ -131,13 +133,108 @@ def check_certificate_expiry(host: str, port: int = 443) -> Tuple[str, str, int]
         return "WARNING", f"Cannot check: {e}", 0
 
 
+def _memory_from_proc_meminfo() -> Tuple[int, int]:
+    with open("/proc/meminfo") as f:
+        meminfo = {}
+        for line in f:
+            parts = line.split(":")
+            if len(parts) == 2:
+                key = parts[0].strip()
+                value = parts[1].strip().replace(" kB", "")
+                try:
+                    meminfo[key] = int(value) * 1024
+                except ValueError:
+                    pass
+    total = meminfo.get("MemTotal", 0)
+    available = meminfo.get("MemAvailable", meminfo.get("MemFree", 0))
+    return total, available
+
+
+def _memory_from_darwin() -> Tuple[int, int]:
+    total = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True).strip())
+    page_size = int(subprocess.check_output(["sysctl", "-n", "hw.pagesize"], text=True).strip())
+    vm = subprocess.check_output(["vm_stat"], text=True)
+    pages_free = pages_active = pages_inactive = pages_wired = 0
+    for line in vm.splitlines():
+        if "Pages free" in line:
+            pages_free = int(line.split(":")[1].strip().rstrip("."))
+        elif "Pages active" in line:
+            pages_active = int(line.split(":")[1].strip().rstrip("."))
+        elif "Pages inactive" in line:
+            pages_inactive = int(line.split(":")[1].strip().rstrip("."))
+        elif "Pages wired down" in line:
+            pages_wired = int(line.split(":")[1].strip().rstrip("."))
+    used = (pages_active + pages_wired) * page_size
+    available = (pages_free + pages_inactive) * page_size
+    return total, max(total - used, available)
+
+
+def _memory_from_windows() -> Tuple[int, int]:
+    if sys.platform != "win32":
+        raise OSError("not Windows")
+    import ctypes
+
+    class MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.c_ulong),
+            ("dwMemoryLoad", ctypes.c_ulong),
+            ("ullTotalPhys", ctypes.c_ulonglong),
+            ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong),
+            ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong),
+            ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    stat = MEMORYSTATUSEX()
+    stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+        raise OSError("GlobalMemoryStatusEx failed")
+    return int(stat.ullTotalPhys), int(stat.ullAvailPhys)
+
+
+def _load_from_proc() -> float:
+    with open("/proc/loadavg") as f:
+        return float(f.read().strip().split()[0])
+
+
+def _load_from_darwin() -> float:
+    return os.getloadavg()[0]
+
+
+def _load_from_windows() -> float:
+    import ctypes
+
+    class FILETIME(ctypes.Structure):
+        _fields_ = [("dwLowDateTime", ctypes.c_ulong), ("dwHighDateTime", ctypes.c_ulong)]
+
+    def _to_int(ft):
+        return (ft.dwHighDateTime << 32) + ft.dwLowDateTime
+
+    idle, kernel, user = FILETIME(), FILETIME(), FILETIME()
+    if not ctypes.windll.kernel32.GetSystemTimes(
+        ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)
+    ):
+        raise OSError("GetSystemTimes failed")
+    total = _to_int(idle) + _to_int(kernel) + _to_int(user)
+    if total == 0:
+        return 0.0
+    return (1.0 - _to_int(idle) / total) * os.cpu_count()
+
+
 def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
     try:
-        stat = os.statvfs(path)
-        total = stat.f_frsize * stat.f_blocks
-        free = stat.f_frsize * stat.f_bavail
+        if hasattr(os, "statvfs") and sys.platform != "win32":
+            stat = os.statvfs(path if path != "/" or sys.platform == "linux" else path)
+            total = stat.f_frsize * stat.f_blocks
+            free = stat.f_frsize * stat.f_bavail
+        else:
+            root = path if os.path.exists(path) else os.path.splitdrive(os.getcwd())[0] + "\\"
+            usage = shutil.disk_usage(root or "C:\\")
+            total, free = usage.total, usage.free
         used = total - free
-        pct = (used / total) * 100
+        pct = (used / total) * 100 if total > 0 else 0
 
         if pct < DISK_THRESHOLD_WARNING:
             return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
@@ -151,20 +248,15 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 def check_memory_usage() -> Tuple[str, str, float]:
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
+        if sys.platform == "linux":
+            total, available = _memory_from_proc_meminfo()
+        elif sys.platform == "darwin":
+            total, available = _memory_from_darwin()
+        elif sys.platform == "win32":
+            total, available = _memory_from_windows()
+        else:
+            return "WARNING", f"Unsupported platform: {sys.platform}", 0
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
         used = total - available
         pct = (used / total) * 100 if total > 0 else 0
 
@@ -180,18 +272,24 @@ def check_memory_usage() -> Tuple[str, str, float]:
 
 def check_load_average() -> Tuple[str, str, float]:
     try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+        if sys.platform == "linux":
+            load = _load_from_proc()
+        elif sys.platform == "darwin":
+            load = _load_from_darwin()
+        elif sys.platform == "win32":
+            load = _load_from_windows()
+        else:
+            return "WARNING", f"Unsupported platform: {sys.platform}", 0
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load / cpu_count) * 100
+
+        if load_pct < 70:
+            return "OK", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
+        else:
+            return "CRITICAL", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
 
