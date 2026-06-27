@@ -1,0 +1,45 @@
+{
+  "generated_at": "2026-06-27T11:49:40Z",
+  "commit_under_test_before_pr_commit": "bf2147ac",
+  "diagnostic_logd": "diagnostic/build-bf2147ac-mirzakah.logd",
+  "encrypted_logd": false,
+  "note": "Plain local diagnostic note because bundled encryptly returned exit code 1 without creating an archive in this macOS environment.",
+  "focused_validation": [
+    {
+      "command": "python3 -m unittest tools.tests.test_log_aggregator_independent_fixtures -v",
+      "status": "PASS",
+      "tests": 5
+    },
+    {
+      "command": "python3 -m unittest discover -s tools/tests -p 'test_*.py' -v",
+      "status": "PASS",
+      "tests": 5
+    },
+    {
+      "command": "python3 -m py_compile tools/log_aggregator.py tools/tests/test_log_aggregator_independent_fixtures.py",
+      "status": "PASS"
+    },
+    {
+      "command": "python3 tools/log_aggregator.py --input tools/tests/fixtures/log_aggregator_real_world/nginx.log --output /tmp/tent-nginx-report.json --format json",
+      "status": "PASS",
+      "observed": {
+        "total_entries": 1,
+        "format": "nginx",
+        "service": "nginx",
+        "status": 502
+      }
+    }
+  ],
+  "required_build_attempts": [
+    {
+      "command": "python3 build.py",
+      "status": "FAIL",
+      "reason": "Local environment missing cmake; build.py raised FileNotFoundError while configuring the engine module before diagnostic finalization."
+    },
+    {
+      "command": "python3 build.py -m compliance",
+      "status": "FAIL",
+      "reason": "Local environment missing Java runtime. The script reached diagnostic finalization, but bundled encryptly returned exit code 1 without creating diagnostic/build-bf2147ac.logd."
+    }
+  ]
+}
