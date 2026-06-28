@@ -1,0 +1,27 @@
+=== Tent of Trials Diagnostic Build ===
+Date: 2026-06-27T23:45:00+08:00
+Host: dify007-virtual-machine
+
+=== Tool Versions ===
+Python: 3.10.12
+Node: v22.22.3
+GCC: not found (cmake not installed; build module engine (C++) skipped)
+
+=== Build Results ===
+backend (Rust): SKIPPED (cargo not found)
+frontend (TypeScript): SKIPPED (npm deps not configured)
+market (Go): SKIPPED (go not found)
+frailbox (C): SKIPPED (gcc not found)
+engine (C++): SKIPPED (cmake not found)
+
+=== Health Check Tests ===
+All 10/10 tests passed (tests/test_health_check_fallback.py)
+- TestMemoryFallback: 4/4 passed
+- TestLoadFallback: 3/3 passed
+- TestMockFallbackBehavior: 3/3 passed
+
+=== Cross-Platform Fallback Validation ===
+check_memory_usage: Linux /proc/meminfo -> sysconf -> macOS sysctl chain verified
+check_load_average: Linux /proc/loadavg -> os.getloadavg() fallback verified
+Source labels [proc], [sysconf], [getloadavg] present in output details
+JSON and text output formats remain backward compatible
