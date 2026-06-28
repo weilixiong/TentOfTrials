@@ -149,51 +149,123 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
         return "WARNING", f"Cannot check: {e}", 0
 
 
-def check_memory_usage() -> Tuple[str, str, float]:
+def _memory_status(total: int, available: int) -> Tuple[str, str, float]:
+    used = total - available
+    pct = (used / total) * 100 if total > 0 else 0
+
+    if pct < MEMORY_THRESHOLD_WARNING:
+        return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+    elif pct < MEMORY_THRESHOLD_CRITICAL:
+        return "WARNING", f"{pct:.1f}% used", pct
+    else:
+        return "CRITICAL", f"{pct:.1f}% used", pct
+
+
+def _read_proc_memory(proc_path: str) -> Tuple[int, int]:
+    with open(proc_path) as f:
+        meminfo = {}
+        for line in f:
+            parts = line.split(":")
+            if len(parts) == 2:
+                key = parts[0].strip()
+                value = parts[1].strip().replace(" kB", "")
+                try:
+                    meminfo[key] = int(value) * 1024
+                except ValueError:
+                    pass
+
+    total = meminfo.get("MemTotal", 0)
+    available = meminfo.get("MemAvailable", 0)
+    if total <= 0 or available < 0:
+        raise ValueError("invalid /proc memory values")
+    return total, available
+
+
+def _memory_from_sysconf() -> Optional[Tuple[int, int]]:
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        total_pages = os.sysconf("SC_PHYS_PAGES")
+        available_pages = os.sysconf("SC_AVPHYS_PAGES")
+    except (ValueError, OSError, AttributeError):
+        return None
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
+    if page_size <= 0 or total_pages <= 0 or available_pages < 0:
+        return None
+    return page_size * total_pages, page_size * available_pages
 
-        if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-        elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
-        else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
+
+def _memory_from_vm_stat() -> Optional[Tuple[int, int]]:
+    try:
+        page_size = int(
+            subprocess.check_output(["sysctl", "-n", "hw.pagesize"], text=True).strip()
+        )
+        total = int(
+            subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True).strip()
+        )
+        output = subprocess.check_output(["vm_stat"], text=True)
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        return None
+
+    pages: Dict[str, int] = {}
+    for line in output.splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        digits = "".join(ch for ch in value if ch.isdigit())
+        if digits:
+            pages[key.strip()] = int(digits)
+
+    available_pages = (
+        pages.get("Pages free", 0)
+        + pages.get("Pages inactive", 0)
+        + pages.get("Pages speculative", 0)
+    )
+    available = min(total, available_pages * page_size)
+    if total <= 0 or available < 0:
+        return None
+    return total, available
+
+
+def _fallback_memory() -> Optional[Tuple[int, int]]:
+    return _memory_from_sysconf() or _memory_from_vm_stat()
+
+
+def check_memory_usage(proc_path: str = "/proc/meminfo") -> Tuple[str, str, float]:
+    try:
+        return _memory_status(*_read_proc_memory(proc_path))
     except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+        fallback = _fallback_memory()
+        if fallback is None:
+            return "WARNING", f"Cannot check: {e}", 0
+        status, detail, pct = _memory_status(*fallback)
+        return status, f"{detail} (fallback)", pct
 
 
-def check_load_average() -> Tuple[str, str, float]:
+def _load_status(load: float) -> Tuple[str, str, float]:
+    cpu_count = os.cpu_count() or 1
+    load_pct = (load / cpu_count) * 100
+
+    if load_pct < 70:
+        return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    elif load_pct < 90:
+        return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    else:
+        return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+
+
+def check_load_average(proc_path: str = "/proc/loadavg") -> Tuple[str, str, float]:
     try:
-        with open("/proc/loadavg") as f:
+        with open(proc_path) as f:
             parts = f.read().strip().split()
             load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
-
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+            return _load_status(load)
     except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+        try:
+            load = os.getloadavg()[0]
+        except (OSError, AttributeError):
+            return "WARNING", f"Cannot check: {e}", 0
+        status, detail, value = _load_status(load)
+        return status, f"{detail} (fallback)", value
 
 
 # ---------------------------------------------------------------------------
@@ -307,11 +379,29 @@ def parse_args():
     parser.add_argument("--watch", "-w", action="store_true", help="Continuous monitoring")
     parser.add_argument("--interval", "-i", type=int, default=30, help="Check interval in seconds")
     parser.add_argument("--output", "-o", help="Output file path")
+    parser.add_argument(
+        "--self-test-fallbacks",
+        action="store_true",
+        help="Validate memory and load fallbacks with missing /proc files",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+
+    if args.self_test_fallbacks:
+        missing = "/tmp/tent-of-trials-missing-proc-file"
+        mem_status, mem_detail, _ = check_memory_usage(missing)
+        load_status, load_detail, _ = check_load_average(missing)
+        checks = {
+            "memory": {"status": mem_status, "detail": mem_detail},
+            "load": {"status": load_status, "detail": load_detail},
+        }
+        print(json.dumps(checks, indent=2))
+        if mem_detail.startswith("Cannot check") or load_detail.startswith("Cannot check"):
+            return 1
+        return 0
 
     if args.watch:
         print(f"Continuous monitoring (interval: {args.interval}s). Press Ctrl+C to stop.")
