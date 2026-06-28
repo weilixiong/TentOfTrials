@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-06-28T15:05:41.133284+00:00",
+  "commit": "45aee55f",
+  "diagnostic_logd": "diagnostic/build-45aee55f.logd",
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": "99f160003ea3437a23fc",
+  "decrypt_command": "encryptly unpack diagnostic/build-45aee55f.logd <outdir> --password 99f160003ea3437a23fc",
+  "total_modules": 1,
+  "passed": 1,
+  "failed": 0,
+  "modules": [
+    {
+      "name": "market",
+      "status": "PASS",
+      "elapsed_seconds": 0.288,
+      "artifact": "/Users/aho/Documents/Codex/2026-06-28/bug/work/bounties/TentOfTrials/market/market"
+    }
+  ],
+  "pr_note": "Include this metadata and diagnostic/build-45aee55f.logd in your PR. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
