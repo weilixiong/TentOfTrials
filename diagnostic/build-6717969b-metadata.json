@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-06-29T02:39:06-04:00",
+  "commit": "6717969b",
+  "diagnostic_logd": "diagnostic/build-6717969b.logd",
+  "password": "a08cbde52bdfbf1c",
+  "note": "encryptly binary requires glibc 2.38+ (system has 2.35). Logd stored as plaintext.",
+  "total_modules": 1,
+  "passed": 5,
+  "failed": 0,
+  "modules": [
+    {
+      "name": "health_check.py",
+      "status": "passed",
+      "tests": 5,
+      "notes": "Cross-platform memory & load fallbacks."
+    }
+  ]
+}

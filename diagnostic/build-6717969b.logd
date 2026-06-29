@@ -1,0 +1,17 @@
+Tent of Trials: build validation
+  Host: linux-x64
+  Target: health_check.py cross-platform fallback
+
+  [PASS] health_check.py: Linux /proc/meminfo path unchanged
+  [PASS] health_check.py: Linux /proc/loadavg path unchanged
+  [PASS] health_check.py: os.path.exists fallback logic
+  [PASS] health_check.py: os.getloadavg() fallback
+  [PASS] tests/test_health_check_fallback.py: 5/5 passed
+
+  Validation results:
+    - check_memory_usage(): OK 62.8% used (4GB/7GB) via /proc/meminfo
+    - check_load_average(): OK Load: 0.65 (11% of 6 cores) via /proc/loadavg
+    - Mocked /proc absent:  graceful WARNING fallback
+    - Output format:        backward compatible (JSON + text)
+
+  Summary: 5/5 checks pass. Linux behavior unchanged. Fallbacks tested.

@@ -150,22 +150,68 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 
 def check_memory_usage() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
+    """
+    Check memory usage with cross-platform fallback.
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
-        used = total - available
+    Linux:   Reads /proc/meminfo for MemTotal and MemAvailable.
+    macOS:   Uses sysctl hw.memsize + vm_stat to compute used memory
+             (active + wired + compressed pages).
+    Other:   Falls back to os.sysconf if available (POSIX).
+    """
+    try:
+        total = 0
+        used = 0
+
+        # --- Linux path ---
+        if os.path.exists("/proc/meminfo"):
+            with open("/proc/meminfo") as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip().replace(" kB", "")
+                        try:
+                            meminfo[key] = int(value) * 1024
+                        except ValueError:
+                            pass
+
+            total = meminfo.get("MemTotal", 0)
+            available = meminfo.get("MemAvailable", 0)
+            used = total - available
+
+        # --- macOS path ---
+        elif os.path.exists("/usr/bin/vm_stat"):
+            import subprocess as sp
+            total = int(sp.check_output(["sysctl", "-n", "hw.memsize"]).strip())
+            vm_out = sp.check_output(["vm_stat"]).decode("utf-8", errors="replace")
+            page_size = int(sp.check_output(["pagesize"]).strip())
+
+            active_pages = 0
+            wired_pages = 0
+            compressed_pages = 0
+
+            for line in vm_out.splitlines():
+                raw = line.strip()
+                if raw.startswith("Pages active:"):
+                    active_pages = int(raw.split(":")[1].strip().rstrip("."))
+                elif raw.startswith("Pages wired down:"):
+                    wired_pages = int(raw.split(":")[1].strip().rstrip("."))
+                elif raw.startswith("Pages occupied by compressor:"):
+                    compressed_pages = int(raw.split(":")[1].strip().rstrip("."))
+
+            used_pages = active_pages + wired_pages + compressed_pages
+            used = used_pages * page_size
+
+        # --- Generic POSIX fallback ---
+        else:
+            try:
+                total = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+                available = os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+                used = total - available
+            except (ValueError, AttributeError, KeyError, OSError):
+                return "WARNING", "No available memory info source on this platform", 0
+
         pct = (used / total) * 100 if total > 0 else 0
 
         if pct < MEMORY_THRESHOLD_WARNING:
@@ -179,19 +225,30 @@ def check_memory_usage() -> Tuple[str, str, float]:
 
 
 def check_load_average() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+    """
+    Check system load average with cross-platform fallback.
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    Linux:   Reads /proc/loadavg directly (current behavior).
+    macOS:   Falls back to os.getloadavg() which is available on both
+             Linux and modern macOS / BSD systems via the standard library.
+    """
+    try:
+        if os.path.exists("/proc/loadavg"):
+            with open("/proc/loadavg") as f:
+                parts = f.read().strip().split()
+                load = float(parts[0])
+        else:
+            load = os.getloadavg()[0]
+
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load / cpu_count) * 100
+
+        if load_pct < 70:
+            return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        else:
+            return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
 
