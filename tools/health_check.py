@@ -63,6 +63,7 @@ DISK_THRESHOLD_CRITICAL = 90
 
 MEMORY_THRESHOLD_WARNING = 80
 MEMORY_THRESHOLD_CRITICAL = 90
+import platform
 
 # ---------------------------------------------------------------------------
 # CHECK FUNCTIONS
