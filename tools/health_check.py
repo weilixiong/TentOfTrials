@@ -149,6 +149,83 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
         return "WARNING", f"Cannot check: {e}", 0
 
 
+def _get_memory_fallback() -> Tuple[int, int]:
+    """Cross-platform fallback for memory info when /proc/meminfo is unavailable.
+    Returns (total_bytes, available_bytes) or (0, 0) if unavailable."""
+    import platform
+    system = platform.system()
+
+    if system == "Darwin":
+        try:
+            result = subprocess.run(
+                ["sysctl", "-n", "hw.memsize"],
+                capture_output=True, text=True, timeout=5,
+            )
+            total = int(result.stdout.strip())
+
+            result = subprocess.run(
+                ["vm_stat"], capture_output=True, text=True, timeout=5,
+            )
+            page_size = 16384
+            vm_stats = {}
+            for line in result.stdout.strip().split("\n"):
+                if ":" in line:
+                    key, val = line.split(":", 1)
+                    val = val.strip().rstrip(".")
+                    try:
+                        vm_stats[key.strip()] = int(val)
+                    except ValueError:
+                        if "page size of" in line:
+                            try:
+                                page_size = int(val.split("page size of")[0].strip())
+                            except ValueError:
+                                pass
+
+            active = vm_stats.get("Pages active", 0)
+            wired = vm_stats.get("Pages wired down", 0)
+            speculative = vm_stats.get("Pages speculative", 0)
+            compressed = vm_stats.get("Pages occupied by compressor", 0)
+            used_pages = active + wired + speculative + compressed
+            used = used_pages * page_size
+            available = total - used
+            return total, max(available, 0)
+        except Exception:
+            pass
+
+    if system in ("Linux", "FreeBSD", "OpenBSD", "NetBSD"):
+        try:
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            phys_pages = os.sysconf("SC_PHYS_PAGES")
+            if page_size > 0 and phys_pages > 0:
+                total = page_size * phys_pages
+                return total, 0
+        except Exception:
+            pass
+
+    if system == "Windows":
+        try:
+            import ctypes
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                ]
+            mem_status = MEMORYSTATUSEX()
+            mem_status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem_status))
+            return mem_status.ullTotalPhys, mem_status.ullAvailPhys
+        except Exception:
+            pass
+
+    return 0, 0
+
+
 def check_memory_usage() -> Tuple[str, str, float]:
     try:
         with open("/proc/meminfo") as f:
@@ -165,8 +242,11 @@ def check_memory_usage() -> Tuple[str, str, float]:
 
         total = meminfo.get("MemTotal", 0)
         available = meminfo.get("MemAvailable", 0)
+        if total <= 0:
+            raise ValueError("Could not parse MemTotal from /proc/meminfo")
+
         used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
+        pct = (used / total) * 100
 
         if pct < MEMORY_THRESHOLD_WARNING:
             return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
@@ -174,8 +254,23 @@ def check_memory_usage() -> Tuple[str, str, float]:
             return "WARNING", f"{pct:.1f}% used", pct
         else:
             return "CRITICAL", f"{pct:.1f}% used", pct
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+    except Exception:
+        total, available = _get_memory_fallback()
+        if total > 0 and available > 0:
+            used = total - available
+            pct = (used / total) * 100
+            if pct < MEMORY_THRESHOLD_WARNING:
+                return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB) [fallback]", pct
+            elif pct < MEMORY_THRESHOLD_CRITICAL:
+                return "WARNING", f"{pct:.1f}% used [fallback]", pct
+            else:
+                return "CRITICAL", f"{pct:.1f}% used [fallback]", pct
+        elif total > 0:
+            pct = 0.0
+            return "OK", f"Total memory: {total // (1024**3)}GB (usage unavailable) [fallback]", pct
+        else:
+            import platform
+            return "WARNING", f"Memory check unavailable on {platform.system()}", 0
 
 
 def check_load_average() -> Tuple[str, str, float]:
@@ -192,8 +287,22 @@ def check_load_average() -> Tuple[str, str, float]:
                 return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
             else:
                 return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+    except Exception:
+        try:
+            load_1, load_5, load_15 = os.getloadavg()
+            load = load_1
+            cpu_count = os.cpu_count() or 1
+            load_pct = (load / cpu_count) * 100
+
+            if load_pct < 70:
+                return "OK", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores) [getloadavg]", load
+            elif load_pct < 90:
+                return "WARNING", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores) [getloadavg]", load
+            else:
+                return "CRITICAL", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores) [getloadavg]", load
+        except Exception as e:
+            import platform
+            return "WARNING", f"Load check unavailable on {platform.system()}: {e}", 0
 
 
 # ---------------------------------------------------------------------------
