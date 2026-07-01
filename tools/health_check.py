@@ -31,8 +31,12 @@ Usage:
 """
 
 import argparse
+import ctypes
 import json
 import os
+import platform
+import re
+import shutil
 import socket
 import ssl
 import subprocess
@@ -133,9 +137,7 @@ def check_certificate_expiry(host: str, port: int = 443) -> Tuple[str, str, int]
 
 def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
     try:
-        stat = os.statvfs(path)
-        total = stat.f_frsize * stat.f_blocks
-        free = stat.f_frsize * stat.f_bavail
+        total, used, free = shutil.disk_usage(path)
         used = total - free
         pct = (used / total) * 100
 
@@ -149,22 +151,150 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
         return "WARNING", f"Cannot check: {e}", 0
 
 
+def _memory_from_proc(meminfo_path: str = "/proc/meminfo") -> Optional[Tuple[int, int]]:
+    meminfo = {}
+    with open(meminfo_path) as f:
+        for line in f:
+            parts = line.split(":")
+            if len(parts) == 2:
+                key = parts[0].strip()
+                value = parts[1].strip().replace(" kB", "")
+                try:
+                    meminfo[key] = int(value) * 1024
+                except ValueError:
+                    pass
+
+    total = meminfo.get("MemTotal", 0)
+    available = meminfo.get("MemAvailable", 0)
+    if total <= 0 or available < 0 or available > total:
+        return None
+    return total, available
+
+
+def _memory_from_sysconf() -> Optional[Tuple[int, int]]:
+    if not hasattr(os, "sysconf"):
+        return None
+
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        total_pages = os.sysconf("SC_PHYS_PAGES")
+        available_pages = os.sysconf("SC_AVPHYS_PAGES")
+    except (OSError, ValueError, AttributeError):
+        return None
+
+    total = int(page_size) * int(total_pages)
+    available = int(page_size) * int(available_pages)
+    if total <= 0 or available < 0 or available > total:
+        return None
+    return total, available
+
+
+def _memory_from_macos_vm_stat() -> Optional[Tuple[int, int]]:
+    if platform.system() != "Darwin":
+        return None
+
+    try:
+        vm_result = subprocess.run(
+            ["vm_stat"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+    page_size_match = re.search(r"page size of (\d+) bytes", vm_result.stdout)
+    if not page_size_match:
+        return None
+    page_size = int(page_size_match.group(1))
+
+    total = 0
+    try:
+        total = int(os.sysconf("SC_PHYS_PAGES")) * page_size
+    except (OSError, ValueError, AttributeError):
+        try:
+            total_result = subprocess.run(
+                ["sysctl", "-n", "hw.memsize"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=True,
+            )
+            total = int(total_result.stdout.strip())
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return None
+
+    pages = {}
+    for line in vm_result.stdout.splitlines():
+        match = re.match(r"Pages ([^:]+):\s+([0-9.]+)", line.strip())
+        if match:
+            pages[match.group(1).lower()] = int(match.group(2).replace(".", ""))
+
+    available_pages = (
+        pages.get("free", 0)
+        + pages.get("inactive", 0)
+        + pages.get("speculative", 0)
+    )
+    available = available_pages * page_size
+    if total <= 0 or available < 0 or available > total:
+        return None
+    return total, available
+
+
+def _memory_from_windows() -> Optional[Tuple[int, int]]:
+    if platform.system() != "Windows":
+        return None
+
+    class MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.c_ulong),
+            ("dwMemoryLoad", ctypes.c_ulong),
+            ("ullTotalPhys", ctypes.c_ulonglong),
+            ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong),
+            ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong),
+            ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    status = MEMORYSTATUSEX()
+    status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+    try:
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return None
+    except AttributeError:
+        return None
+
+    if status.ullTotalPhys <= 0 or status.ullAvailPhys > status.ullTotalPhys:
+        return None
+    return int(status.ullTotalPhys), int(status.ullAvailPhys)
+
+
+def _get_memory_totals() -> Optional[Tuple[int, int]]:
+    for provider in (
+        _memory_from_proc,
+        _memory_from_sysconf,
+        _memory_from_macos_vm_stat,
+        _memory_from_windows,
+    ):
+        try:
+            totals = provider()
+        except Exception:
+            totals = None
+        if totals is not None:
+            return totals
+    return None
+
+
 def check_memory_usage() -> Tuple[str, str, float]:
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
+        totals = _get_memory_totals()
+        if totals is None:
+            return "WARNING", "Cannot check: no supported memory provider", 0
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
+        total, available = totals
         used = total - available
         pct = (used / total) * 100 if total > 0 else 0
 
@@ -178,20 +308,46 @@ def check_memory_usage() -> Tuple[str, str, float]:
         return "WARNING", f"Cannot check: {e}", 0
 
 
+def _load_from_proc(loadavg_path: str = "/proc/loadavg") -> Optional[float]:
+    with open(loadavg_path) as f:
+        parts = f.read().strip().split()
+        if not parts:
+            return None
+        return float(parts[0])
+
+
+def _load_from_getloadavg() -> Optional[float]:
+    if not hasattr(os, "getloadavg"):
+        return None
+    return float(os.getloadavg()[0])
+
+
+def _get_load_average() -> Optional[float]:
+    for provider in (_load_from_proc, _load_from_getloadavg):
+        try:
+            load = provider()
+        except (OSError, ValueError):
+            load = None
+        if load is not None:
+            return load
+    return None
+
+
 def check_load_average() -> Tuple[str, str, float]:
     try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+        load = _get_load_average()
+        if load is None:
+            return "WARNING", "Cannot check: load average is not available on this platform", 0
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load / cpu_count) * 100
+
+        if load_pct < 70:
+            return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        else:
+            return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
 
