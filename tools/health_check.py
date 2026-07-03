@@ -145,14 +145,29 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
             return "WARNING", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
         else:
             return "CRITICAL", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+    except AttributeError:
+        # Fallback for Windows where statvfs is not available
+        try:
+            import shutil
+            usage = shutil.disk_usage(path)
+            pct = (usage.used / usage.total) * 100
+            if pct < DISK_THRESHOLD_WARNING:
+                return "OK", f"{pct:.1f}% used ({usage.used // (1024**3)}GB/{usage.total // (1024**3)}GB)", pct
+            elif pct < DISK_THRESHOLD_CRITICAL:
+                return "WARNING", f"{pct:.1f}% used", pct
+            else:
+                return "CRITICAL", f"{pct:.1f}% used", pct
+        except Exception:
+            return "WARNING", "Disk check not available on this platform", 0
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
 
 
-def check_memory_usage() -> Tuple[str, str, float]:
+def _read_meminfo_linux() -> Optional[Dict[str, int]]:
+    """Linux: parse /proc/meminfo."""
+    meminfo = {}
     try:
         with open("/proc/meminfo") as f:
-            meminfo = {}
             for line in f:
                 parts = line.split(":")
                 if len(parts) == 2:
@@ -162,9 +177,78 @@ def check_memory_usage() -> Tuple[str, str, float]:
                         meminfo[key] = int(value) * 1024
                     except ValueError:
                         pass
+    except FileNotFoundError:
+        return None
+    return meminfo
+
+
+def _read_mem_macos() -> Optional[Dict[str, int]]:
+    """macOS: use sysctl + vm_stat for memory info."""
+    try:
+        import subprocess
+        import re
+
+        # Total memory via sysctl
+        total_str = subprocess.check_output(
+            ["sysctl", "-n", "hw.memsize"], text=True
+        ).strip()
+        total = int(total_str)
+
+        # Page size
+        pagesize_str = subprocess.check_output(
+            ["sysctl", "-n", "hw.pagesize"], text=True
+        ).strip()
+        pagesize = int(pagesize_str)
+
+        # Free + cached pages via vm_stat
+        vm_out = subprocess.check_output(["vm_stat"], text=True)
+        free_pages = 0
+        cached_pages = 0
+        for line in vm_out.splitlines():
+            if "free" in line.lower() and "Pages" in line:
+                try:
+                    free_pages = int(line.split(":")[1].strip().rstrip("."))
+                except (ValueError, IndexError):
+                    pass
+            elif "cached" in line.lower() and "Pages" in line:
+                try:
+                    m = re.search(r'(\d+)', line.split(":")[1])
+                    if m:
+                        cached_pages = int(m.group(1))
+                except (ValueError, IndexError):
+                    pass
+
+        available = (free_pages + cached_pages) * pagesize
+        used = total - available
+        return {"MemTotal": total, "MemAvailable": available}
+    except Exception:
+        return None
+
+
+def check_memory_usage() -> Tuple[str, str, float]:
+    try:
+        meminfo = _read_meminfo_linux()
+        if meminfo is None:
+            meminfo = _read_mem_macos()
+
+        if meminfo is None:
+            # Ultimate fallback: psutil
+            try:
+                import psutil
+                mem = psutil.virtual_memory()
+                pct = mem.percent
+                return "OK", f"{pct:.1f}% used ({mem.used // (1024**3)}GB/{mem.total // (1024**3)}GB)", pct
+            except ImportError:
+                pass
+            return "WARNING", "Cannot determine memory usage (unsupported OS)", 0
 
         total = meminfo.get("MemTotal", 0)
         available = meminfo.get("MemAvailable", 0)
+        if available == 0:
+            # Estimate on macOS: use page counts
+            if _read_mem_macos() is not None:
+                return check_memory_usage()  # retry with macOS path
+
         used = total - available
         pct = (used / total) * 100 if total > 0 else 0
 
@@ -180,18 +264,20 @@ def check_memory_usage() -> Tuple[str, str, float]:
 
 def check_load_average() -> Tuple[str, str, float]:
     try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+        # os.getloadavg() works on both Linux AND macOS
+        load_1, load_5, load_15 = os.getloadavg()
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load_1 / cpu_count) * 100
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        if load_pct < 70:
+            return "OK", f"Load: {load_1} ({load_pct:.0f}% of {cpu_count} cores)", load_1
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load_1} ({load_pct:.0f}% of {cpu_count} cores)", load_1
+        else:
+            return "CRITICAL", f"Load: {load_1} ({load_pct:.0f}% of {cpu_count} cores)", load_1
+    except OSError:
+        # Fallback for Windows where getloadavg() is not available
+        return "WARNING", "Load average not available on this platform", 0
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
 
