@@ -1,0 +1,3 @@
+2026-06-18 10:20:30 [api] INFO request completed in 42ms
+2026-06-18 10:21:00 [scheduler] WARN retry queue depth is high
+this line has no timestamp or level but should still be captured safely

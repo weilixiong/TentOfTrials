@@ -234,6 +234,16 @@ def color(text: str, code: str) -> str:
         return text
     return f"{code}{text}{Colors.RESET}"
 
+
+def resolve_command(cmd: list[str]) -> list[str]:
+    """Resolve command shims such as npm.cmd before subprocess runs."""
+    if not cmd:
+        return cmd
+    resolved = shutil.which(cmd[0])
+    if resolved is None:
+        return cmd
+    return [resolved, *cmd[1:]]
+
 def check_prerequisites() -> list[str]:
     required = {
         "cargo": "Rust",
@@ -277,7 +287,7 @@ def build_module(
             print(f"       {color('npm install...', Colors.GRAY)}")
             try:
                 install_result = subprocess.run(
-                    ["npm", "install"],
+                    resolve_command(["npm", "install"]),
                     cwd=str(module.dir),
                     capture_output=not verbose,
                     text=True,
@@ -292,15 +302,22 @@ def build_module(
     if module.name == "engine":
 
         build_type = "Release" if release else "Debug"
-        cfg_result = subprocess.run(
-            ["cmake", "-S", ".", "-B", "build",
-             f"-DCMAKE_BUILD_TYPE={build_type}"],
-            cwd=str(module.dir),
-            capture_output=True,
-            text=True,
-            timeout=120,
-            env=env,
-        )
+        try:
+            cfg_result = subprocess.run(
+                resolve_command([
+                    "cmake", "-S", ".", "-B", "build",
+                    f"-DCMAKE_BUILD_TYPE={build_type}"
+                ]),
+                cwd=str(module.dir),
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=env,
+            )
+        except FileNotFoundError as e:
+            return False, 0, f"Command not found: {e}"
+        except subprocess.TimeoutExpired:
+            return False, time.time() - start, "CMake configure TIMEOUT (120s)"
         if cfg_result.returncode != 0:
             return False, time.time() - start, (
                 f"CMake configure failed:\n{cfg_result.stderr}")
@@ -314,6 +331,7 @@ def build_module(
         cmd = list(module.build_cmd)
         if release and module.name == "backend":
             cmd.append("--release")
+    cmd = resolve_command(cmd)
 
     try:
         result = subprocess.run(
