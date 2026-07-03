@@ -31,6 +31,7 @@ Usage:
 """
 
 import argparse
+import ctypes
 import json
 import os
 import socket
@@ -63,6 +64,41 @@ DISK_THRESHOLD_CRITICAL = 90
 
 MEMORY_THRESHOLD_WARNING = 80
 MEMORY_THRESHOLD_CRITICAL = 90
+
+
+def format_memory_status(total: int, available: int) -> Tuple[str, str, float]:
+    used = total - available
+    pct = (used / total) * 100 if total > 0 else 0
+
+    if pct < MEMORY_THRESHOLD_WARNING:
+        return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+    if pct < MEMORY_THRESHOLD_CRITICAL:
+        return "WARNING", f"{pct:.1f}% used", pct
+    return "CRITICAL", f"{pct:.1f}% used", pct
+
+
+def get_windows_memory_status() -> Optional[Tuple[int, int]]:
+    if os.name != "nt":
+        return None
+
+    class MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.c_ulong),
+            ("dwMemoryLoad", ctypes.c_ulong),
+            ("ullTotalPhys", ctypes.c_ulonglong),
+            ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong),
+            ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong),
+            ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    status = MEMORYSTATUSEX()
+    status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        return None
+    return int(status.ullTotalPhys), int(status.ullAvailPhys)
 
 # ---------------------------------------------------------------------------
 # CHECK FUNCTIONS
@@ -165,16 +201,24 @@ def check_memory_usage() -> Tuple[str, str, float]:
 
         total = meminfo.get("MemTotal", 0)
         available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
-
-        if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-        elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
-        else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
+        return format_memory_status(total, available)
     except Exception as e:
+        windows_memory = get_windows_memory_status()
+        if windows_memory is not None:
+            total, available = windows_memory
+            return format_memory_status(total, available)
+
+        try:
+            if hasattr(os, "sysconf"):
+                page_size = os.sysconf("SC_PAGE_SIZE")
+                total_pages = os.sysconf("SC_PHYS_PAGES")
+                available_pages = os.sysconf("SC_AVPHYS_PAGES")
+                total = page_size * total_pages
+                available = page_size * available_pages
+                return format_memory_status(total, available)
+        except Exception:
+            pass
+
         return "WARNING", f"Cannot check: {e}", 0
 
 
@@ -193,6 +237,19 @@ def check_load_average() -> Tuple[str, str, float]:
             else:
                 return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
     except Exception as e:
+        try:
+            load = os.getloadavg()[0]
+            cpu_count = os.cpu_count() or 1
+            load_pct = (load / cpu_count) * 100
+
+            if load_pct < 70:
+                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+            if load_pct < 90:
+                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+            return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        except Exception:
+            pass
+
         return "WARNING", f"Cannot check: {e}", 0
 
 
