@@ -1,0 +1,1 @@
+203.0.113.24 - frank [17/May/2024:12:36:02 +0000] "GET /api/trials/42 HTTP/1.1" 502 512 "https://tent.example/dashboard" "Mozilla/5.0 fixture"
