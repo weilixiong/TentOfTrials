@@ -1,0 +1,3 @@
+{"timestamp": 1710495751, "level": "INFO", "service": "billing-api", "message": "Invoice queued", "invoice_id": "inv_9f2"}
+{"timestamp": 1710495752, "level": "ERROR", "service": "auth-gateway", "message": "Token validation failed", "reason": "expired"}
+{"timestamp": 1710495753, "level": "debug", "service": "worker", "message": "Retry scheduled", "attempt": 2}
