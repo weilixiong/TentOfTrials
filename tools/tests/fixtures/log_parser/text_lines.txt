@@ -1,0 +1,3 @@
+2024-03-15 10:22:31 INFO [billing] Invoice queued for customer c_882
+2024-03-15 10:22:32 ERROR [auth] Token validation failed (expired)
+2024-03-15 10:22:33 WARN [worker] Retry scheduled attempt=2
