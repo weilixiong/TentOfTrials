@@ -1,0 +1,1 @@
+{"timestamp":"2026-07-06T10:15:30Z","level":"ERROR","service":"billing","message":"payment failed","request_id":"req-123","amount":42.50}
