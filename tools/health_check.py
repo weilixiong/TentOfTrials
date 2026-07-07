@@ -151,22 +151,75 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 def check_memory_usage() -> Tuple[str, str, float]:
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
+        if os.path.exists("/proc/meminfo"):
+            with open("/proc/meminfo") as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip().replace(" kB", "")
+                        try:
+                            meminfo[key] = int(value) * 1024
+                        except ValueError:
+                            pass
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
+            total = meminfo.get("MemTotal", 0)
+            available = meminfo.get("MemAvailable", 0)
+            used = total - available
+            pct = (used / total) * 100 if total > 0 else 0
+        else:
+            import platform
+            system = platform.system()
+            if system == "Windows":
+                import ctypes
+                class MEMORYSTATUSEX(ctypes.Structure):
+                    _fields_ = [
+                        ("dwLength", ctypes.c_ulong),
+                        ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong),
+                        ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong),
+                        ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong),
+                        ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                    ]
+                stat = MEMORYSTATUSEX()
+                stat.dwLength = ctypes.sizeof(stat)
+                if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                    total = stat.ullTotalPhys
+                    available = stat.ullAvailPhys
+                    used = total - available
+                    pct = float(stat.dwMemoryLoad)
+                else:
+                    raise Exception("GlobalMemoryStatusEx failed")
+            elif system == "Darwin":
+                import re
+                total_bytes_str = subprocess.check_output(["sysctl", "-n", "hw.memsize"]).decode("utf-8").strip()
+                total = int(total_bytes_str)
+                vm = subprocess.check_output(["vm_stat"]).decode("utf-8")
+                page_size = 4096
+                free_pages = 0
+                inactive_pages = 0
+                for line in vm.splitlines():
+                    if "page size of" in line:
+                        page_size_matches = re.findall(r"\d+", line)
+                        if page_size_matches:
+                            page_size = int(page_size_matches[0])
+                    elif "Pages free:" in line:
+                        free_pages_matches = re.findall(r"\d+", line)
+                        if free_pages_matches:
+                            free_pages = int(free_pages_matches[0])
+                    elif "Pages inactive:" in line:
+                        inactive_pages_matches = re.findall(r"\d+", line)
+                        if inactive_pages_matches:
+                            inactive_pages = int(inactive_pages_matches[0])
+                available = (free_pages + inactive_pages) * page_size
+                used = total - available
+                pct = (used / total) * 100 if total > 0 else 0
+            else:
+                raise Exception(f"Unsupported platform: {system}")
 
         if pct < MEMORY_THRESHOLD_WARNING:
             return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
@@ -180,18 +233,44 @@ def check_memory_usage() -> Tuple[str, str, float]:
 
 def check_load_average() -> Tuple[str, str, float]:
     try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
-
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        if os.path.exists("/proc/loadavg"):
+            with open("/proc/loadavg") as f:
+                parts = f.read().strip().split()
+                load = float(parts[0])
+        else:
+            if hasattr(os, "getloadavg"):
+                load = os.getloadavg()[0]
             else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                import platform
+                system = platform.system()
+                if system == "Windows":
+                    out = subprocess.check_output(['typeperf', '\\Processor(_Total)\\% Processor Time', '-sc', '1'], startupinfo=None).decode('utf-8', errors='ignore')
+                    lines = [l.strip() for l in out.splitlines() if l.strip()]
+                    val = None
+                    for line in lines:
+                        if "," in line and not "PDH-CSV" in line:
+                            parts = line.split(",")
+                            if len(parts) >= 2:
+                                val = float(parts[1].replace('"', ''))
+                                break
+                    if val is not None:
+                        cpu_count = os.cpu_count() or 1
+                        load_pct = val
+                        load = (load_pct / 100.0) * cpu_count
+                    else:
+                        raise Exception("Value not found in typeperf output")
+                else:
+                    raise Exception("No load average source available")
+
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load / cpu_count) * 100
+
+        if load_pct < 70:
+            return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        else:
+            return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
 
