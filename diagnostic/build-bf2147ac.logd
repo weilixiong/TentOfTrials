@@ -1,0 +1,10 @@
+Tent of Trials - Build Summary
+==================================================
+generated_at: 2026-07-08T12:35:00.000000+00:00
+generator: test_log_parsers.py
+total_modules: 1
+passed: 1
+failed: 0
+
+module results:
+  test_log_parsers: PASS (16 fixtures: 3 JSON + 5 text + 3 nginx + 5 malformed)
