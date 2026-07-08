@@ -151,49 +151,96 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 def check_memory_usage() -> Tuple[str, str, float]:
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
+        if os.path.exists("/proc/meminfo"):
+            with open("/proc/meminfo") as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip().replace(" kB", "")
+                        try:
+                            meminfo[key] = int(value) * 1024
+                        except ValueError:
+                            pass
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
+            total = meminfo.get("MemTotal", 0)
+            available = meminfo.get("MemAvailable", 0)
+            used = total - available
+            pct = (used / total) * 100 if total > 0 else 0
+
+            if pct < MEMORY_THRESHOLD_WARNING:
+                return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+            elif pct < MEMORY_THRESHOLD_CRITICAL:
+                return "WARNING", f"{pct:.1f}% used", pct
+            else:
+                return "CRITICAL", f"{pct:.1f}% used", pct
+    except Exception as e:
+        return "WARNING", f"Cannot check: {e}", 0
+
+    # Fallback: use psutil if available
+    try:
+        import psutil
+        total = psutil.virtual_memory().total
+        available = psutil.virtual_memory().available
         used = total - available
         pct = (used / total) * 100 if total > 0 else 0
 
         if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+            return "OK", f"{pct:.1f}% used (fallback: psutil)", pct
         elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
+            return "WARNING", f"{pct:.1f}% used (fallback: psutil)", pct
         else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+            return "CRITICAL", f"{pct:.1f}% used (fallback: psutil)", pct
+    except ImportError:
+        pass
+
+    # Final fallback: os.sysconf (POSIX) or basic system query
+    try:
+        page_size = os.sysconf_names.get("SC_PAGE_SIZE", None)
+        phys_pages = os.sysconf_names.get("SC_PHYS_PAGES", None)
+        if page_size and phys_pages:
+            total = os.sysconf(page_size) * os.sysconf(phys_pages)
+            return "OK", f"Total: {total // (1024**3)}GB (fallback: sysconf)", 0.0
+    except Exception:
+        pass
+
+    return "WARNING", "Cannot check: no /proc/meminfo, psutil, or sysconf", 0
 
 
 def check_load_average() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+    cpu_count = os.cpu_count() or 1
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    try:
+        if os.path.exists("/proc/loadavg"):
+            with open("/proc/loadavg") as f:
+                parts = f.read().strip().split()
+                load = float(parts[0])
+                load_pct = (load / cpu_count) * 100
+
+                if load_pct < 70:
+                    return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                elif load_pct < 90:
+                    return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                else:
+                    return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
+
+    # Fallback: os.getloadavg() — available on most Unix-like systems
+    try:
+        load = os.getloadavg()[0]
+        load_pct = (load / cpu_count) * 100
+        if load_pct < 70:
+            return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores, fallback: os.getloadavg)", load
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores, fallback: os.getloadavg)", load
+        else:
+            return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores, fallback: os.getloadavg)", load
+    except OSError:
+        pass
+
+    return "WARNING", "Cannot check: no /proc/loadavg or os.getloadavg", 0
 
 
 # ---------------------------------------------------------------------------
