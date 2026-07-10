@@ -244,7 +244,10 @@ def check_load_average() -> Tuple[str, str, float]:
                 import platform
                 system = platform.system()
                 if system == "Windows":
-                    out = subprocess.check_output(['typeperf', '\\Processor(_Total)\\% Processor Time', '-sc', '1'], startupinfo=None).decode('utf-8', errors='ignore')
+                    try:
+                        out = subprocess.check_output(['typeperf', '\\238(_Total)\\6', '-sc', '1'], startupinfo=None).decode('utf-8', errors='ignore')
+                    except Exception:
+                        out = subprocess.check_output(['typeperf', '\\Processor(_Total)\\% Processor Time', '-sc', '1'], startupinfo=None).decode('utf-8', errors='ignore')
                     lines = [l.strip() for l in out.splitlines() if l.strip()]
                     val = None
                     for line in lines:
