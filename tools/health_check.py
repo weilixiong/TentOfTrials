@@ -251,11 +251,23 @@ def check_load_average() -> Tuple[str, str, float]:
                     lines = [l.strip() for l in out.splitlines() if l.strip()]
                     val = None
                     for line in lines:
-                        if "," in line and not "PDH-CSV" in line:
-                            parts = line.split(",")
-                            if len(parts) >= 2:
-                                val = float(parts[1].replace('"', ''))
-                                break
+                        if not "PDH-CSV" in line:
+                            if ";" in line:
+                                parts = line.split(";")
+                                if len(parts) >= 2:
+                                    try:
+                                        val = float(parts[1].replace('"', '').replace(',', '.'))
+                                        break
+                                    except ValueError:
+                                        pass
+                            elif "," in line:
+                                parts = line.split(",")
+                                if len(parts) >= 2:
+                                    try:
+                                        val = float(parts[1].replace('"', ''))
+                                        break
+                                    except ValueError:
+                                        pass
                     if val is not None:
                         cpu_count = os.cpu_count() or 1
                         load_pct = val
