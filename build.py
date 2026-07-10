@@ -92,8 +92,8 @@ MODULES = [
         name="frontend",
         language="TypeScript",
         dir=ROOT / "frontend",
-        build_cmd=["npm", "run", "build"],
-        clean_cmd=["rm", "-rf", "node_modules", "dist"],
+        build_cmd=["npm.cmd" if platform.system() == "Windows" else "npm", "run", "build"],
+        clean_cmd=["rm", "-rf", "node_modules", "dist"] if platform.system() != "Windows" else ["cmd", "/c", "rd", "/s", "/q", "node_modules", "dist"],
         build_dir=ROOT / "frontend" / "dist",
         env={"NODE_ENV": "production"},
     ),
@@ -276,8 +276,9 @@ def build_module(
         if not node_modules.exists():
             print(f"       {color('npm install...', Colors.GRAY)}")
             try:
+                npm_bin = "npm.cmd" if platform.system() == "Windows" else "npm"
                 install_result = subprocess.run(
-                    ["npm", "install"],
+                    [npm_bin, "install"],
                     cwd=str(module.dir),
                     capture_output=not verbose,
                     text=True,
@@ -288,28 +289,32 @@ def build_module(
                     return False, time.time() - start, f"npm install failed:\n{install_result.stderr}"
             except subprocess.TimeoutExpired:
                 return False, time.time() - start, "npm install TIMEOUT (120s)"
+            except FileNotFoundError as e:
+                return False, 0, f"npm command not found: {e}"
 
     if module.name == "engine":
-
         build_type = "Release" if release else "Debug"
-        cfg_result = subprocess.run(
-            ["cmake", "-S", ".", "-B", "build",
-             f"-DCMAKE_BUILD_TYPE={build_type}"],
-            cwd=str(module.dir),
-            capture_output=True,
-            text=True,
-            timeout=120,
-            env=env,
-        )
-        if cfg_result.returncode != 0:
-            return False, time.time() - start, (
-                f"CMake configure failed:\n{cfg_result.stderr}")
-        if verbose:
-            print(f"       {color('cmake configured', Colors.GRAY)}")
-        cmd = ["cmake", "--build", "build"]
-        if release:
-            cmd.append("--config")
-            cmd.append("Release")
+        try:
+            cfg_result = subprocess.run(
+                ["cmake", "-S", ".", "-B", "build",
+                 f"-DCMAKE_BUILD_TYPE={build_type}"],
+                cwd=str(module.dir),
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=env,
+            )
+            if cfg_result.returncode != 0:
+                return False, time.time() - start, (
+                    f"CMake configure failed:\n{cfg_result.stderr}")
+            if verbose:
+                print(f"       {color('cmake configured', Colors.GRAY)}")
+            cmd = ["cmake", "--build", "build"]
+            if release:
+                cmd.append("--config")
+                cmd.append("Release")
+        except FileNotFoundError as e:
+            return False, 0, f"cmake command not found: {e}"
     else:
         cmd = list(module.build_cmd)
         if release and module.name == "backend":
@@ -487,13 +492,31 @@ def generate_logd(
                 log_lines.append(output)
         (safe_dir / "build.log").write_text("\n".join(log_lines), encoding="utf-8")
 
+        env = os.environ.copy()
+        logd_arg = str(logd_path)
+        workspace_arg = str(workspace)
+
+        if platform.system() == "Windows":
+            userprofile = env.get("USERPROFILE", "")
+            if userprofile and not userprofile.startswith("\\\\?\\"):
+                env["USERPROFILE"] = "\\\\?\\" + userprofile
+            def to_unc(p: Path) -> str:
+                abs_p = str(p.resolve())
+                if abs_p.startswith("\\\\?\\"):
+                    return abs_p
+                if len(abs_p) >= 2 and abs_p[1] == ":":
+                    abs_p = abs_p[0].upper() + abs_p[1:]
+                return "\\\\?\\" + abs_p
+            logd_arg = to_unc(logd_path)
+            workspace_arg = to_unc(workspace)
+
         sr = subprocess.run(
             [
                 str(encryptly_bin),
                 "pack",
-                str(logd_path),
+                logd_arg,
                 "--include",
-                str(workspace),
+                workspace_arg,
                 "--max-file-size",
                 "10000",
             ],
@@ -501,6 +524,7 @@ def generate_logd(
             capture_output=True,
             text=True,
             timeout=300,
+            env=env,
         )
         if sr.returncode != 0:
             print(
