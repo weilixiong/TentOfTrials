@@ -150,21 +150,12 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 
 def check_memory_usage() -> Tuple[str, str, float]:
+    """Check memory usage with cross-platform fallbacks."""
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
-
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
+        total, available = _get_memory_info()
+        if total == 0:
+            return "WARNING", "Memory info unavailable on this platform", 0
+        
         used = total - available
         pct = (used / total) * 100 if total > 0 else 0
 
@@ -178,27 +169,144 @@ def check_memory_usage() -> Tuple[str, str, float]:
         return "WARNING", f"Cannot check: {e}", 0
 
 
-def check_load_average() -> Tuple[str, str, float]:
+def _get_memory_info() -> Tuple[int, int]:
+    """Get total and available memory in bytes, with cross-platform fallbacks.
+    
+    Returns (total_bytes, available_bytes). Returns (0, 0) if no method works.
+    
+    Platform support:
+    - Linux: /proc/meminfo (primary)
+    - macOS: subprocess vm_stat + sysctl hw.memsize (fallback)
+    - Any: psutil library if installed (universal fallback)
+    """
+    # Try /proc/meminfo (Linux)
     try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+        with open("/proc/meminfo") as f:
+            meminfo = {}
+            for line in f:
+                parts = line.split(":")
+                if len(parts) == 2:
+                    key = parts[0].strip()
+                    value = parts[1].strip().replace(" kB", "")
+                    try:
+                        meminfo[key] = int(value) * 1024
+                    except ValueError:
+                        pass
+            total = meminfo.get("MemTotal", 0)
+            available = meminfo.get("MemAvailable", 0)
+            if total > 0:
+                return total, available
+    except (FileNotFoundError, PermissionError):
+        pass
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    # Try psutil (universal, if installed)
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        return mem.total, mem.available
+    except ImportError:
+        pass
+
+    # Try macOS vm_stat + sysctl
+    try:
+        import subprocess
+        # Get total memory from sysctl
+        sysctl_result = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"],
+            capture_output=True, text=True, timeout=5
+        )
+        if sysctl_result.returncode == 0:
+            total = int(sysctl_result.stdout.strip())
+            
+            # Get page size and vm_stat info
+            page_size_result = subprocess.run(
+                ["sysctl", "-n", "vm.pagesize"],
+                capture_output=True, text=True, timeout=5
+            )
+            if page_size_result.returncode == 0:
+                page_size = int(page_size_result.stdout.strip())
+                
+                vm_stat = subprocess.run(
+                    ["vm_stat"],
+                    capture_output=True, text=True, timeout=5
+                )
+                if vm_stat.returncode == 0:
+                    lines = vm_stat.stdout.strip().split("
+")
+                    free_pages = 0
+                    inactive_pages = 0
+                    purgeable_pages = 0
+                    for line in lines:
+                        if "Pages free" in line:
+                            free_pages = int(line.split(":")[1].strip().rstrip("."))
+                        elif "Pages inactive" in line:
+                            inactive_pages = int(line.split(":")[1].strip().rstrip("."))
+                        elif "Pages purgeable" in line:
+                            purgeable_pages = int(line.split(":")[1].strip().rstrip("."))
+                    
+                    available = (free_pages + inactive_pages + purgeable_pages) * page_size
+                    return total, available
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError):
+        pass
+
+    # No method worked
+    return 0, 0
+
+
+def check_load_average() -> Tuple[str, str, float]:
+    """Check system load average with cross-platform fallbacks."""
+    try:
+        load = _get_load_average()
+        if load is None:
+            return "WARNING", "Load average unavailable on this platform", 0
+        
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load / cpu_count) * 100
+
+        if load_pct < 70:
+            return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        else:
+            return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
 
 
-# ---------------------------------------------------------------------------
-# HEALTH CHECK RUNNER
-# ---------------------------------------------------------------------------
+def _get_load_average() -> Optional[float]:
+    """Get 1-minute load average with cross-platform fallbacks.
+    
+    Returns the 1-minute load average as a float, or None if unavailable.
+    
+    Platform support:
+    - Linux: /proc/loadavg (primary)
+    - Any: os.getloadavg() (fallback, works on most Unix systems)
+    - Windows: not available (returns None)
+    """
+    # Try /proc/loadavg (Linux)
+    try:
+        with open("/proc/loadavg") as f:
+            parts = f.read().strip().split()
+            return float(parts[0])
+    except (FileNotFoundError, PermissionError, IndexError, ValueError):
+        pass
+
+    # Try os.getloadavg() (works on most Unix-like systems including macOS)
+    try:
+        load = os.getloadavg()
+        return load[0]  # 1-minute average
+    except (OSError, AttributeError):
+        pass
+
+    # Try psutil (universal, if installed)
+    try:
+        import psutil
+        load = psutil.getloadavg()
+        return load[0]
+    except (ImportError, AttributeError):
+        pass
+
+    return None
 
 def run_health_checks(service: Optional[str] = None, json_output: bool = False) -> Dict[str, Any]:
     results: Dict[str, Any] = {
