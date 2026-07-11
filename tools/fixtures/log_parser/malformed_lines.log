@@ -1,0 +1,3 @@
+# Malformed or unsupported lines that must not crash parsing.
+this is not a valid log line {{{
+<<<binary garbage>>>
