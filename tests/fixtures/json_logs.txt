@@ -1,0 +1,5 @@
+{"timestamp":"2024-01-15T10:30:00Z","level":"info","service":"backend","message":"Server started on port 8080"}
+{"@timestamp":"2024-01-15T10:31:00Z","severity":"error","logger":"auth","msg":"Failed login attempt from 10.0.0.1"}
+{"time":"2024-01-15T10:32:00Z","lvl":"warn","app":"market","event":"Rate limit exceeded for user 12345"}
+{"timestamp":"2024-01-15T10:33:00Z","level":"debug","service":"frailbox","message":"Cache miss for key user:profile:42"}
+{"invalid json line that should not parse}

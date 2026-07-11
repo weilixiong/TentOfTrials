@@ -1,0 +1,5 @@
+2024-01-15 10:30:00 INFO  [backend] Server started on port 8080
+2024-01-15 10:31:00 ERROR [auth] Failed login attempt from 10.0.0.1
+2024-01-15 10:32:00 WARN  [market] Rate limit exceeded for user 12345
+
+2024-01-15 10:33:00 DEBUG [frailbox] Cache miss for key user:profile:42
