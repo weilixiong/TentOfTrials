@@ -1,0 +1,2 @@
+127.0.0.1 - - [12/Mar/2024:08:30:00 +0000] "GET /api/health HTTP/1.1" 200 512 "http://localhost/" "curl/8.0"
+10.0.0.9 - - [12/Mar/2024:08:31:22 +0000] "POST /api/charge HTTP/1.1" 500 0 "-" "Mozilla/5.0"
