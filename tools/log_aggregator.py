@@ -104,7 +104,7 @@ class LogParser:
         return 'unknown'
 
     def extract_service(self, line: str) -> Optional[str]:
-        match = re.search(r'\[(\w+)\]', line)
+        match = re.search(r'\[([\w-]+)\]', line)
         if match:
             return match.group(1)
         match = re.search(r'(\w+)\s*:', line)
@@ -121,9 +121,23 @@ class JSONLogParser(LogParser):
             entry = json.loads(line.strip())
             if not isinstance(entry, dict):
                 return None
+            raw_level = (entry.get('level') or entry.get('severity') or entry.get('lvl', 'info'))
+            raw_ts = entry.get('timestamp') or entry.get('time') or entry.get('@timestamp')
+            # Normalize level to lowercase
+            level = raw_level.lower() if isinstance(raw_level, str) else 'info'
+            # Convert ISO timestamp string to int if possible
+            timestamp = raw_ts
+            if isinstance(raw_ts, str):
+                for fmt in ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S']:
+                    try:
+                        dt = datetime.strptime(raw_ts[:19], fmt)
+                        timestamp = int(dt.replace(tzinfo=timezone.utc).timestamp())
+                        break
+                    except (ValueError, IndexError):
+                        continue
             return {
-                'timestamp': entry.get('timestamp') or entry.get('time') or entry.get('@timestamp'),
-                'level': entry.get('level') or entry.get('severity') or entry.get('lvl', 'info'),
+                'timestamp': timestamp,
+                'level': level,
                 'service': entry.get('service') or entry.get('logger') or entry.get('app'),
                 'message': entry.get('message') or entry.get('msg') or entry.get('event', ''),
                 'fields': entry,

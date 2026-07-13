@@ -33,6 +33,7 @@ Usage:
 import argparse
 import json
 import os
+import platform
 import socket
 import ssl
 import subprocess
@@ -67,6 +68,151 @@ MEMORY_THRESHOLD_CRITICAL = 90
 # ---------------------------------------------------------------------------
 # CHECK FUNCTIONS
 # ---------------------------------------------------------------------------
+
+
+def _read_proc_meminfo() -> Optional[Dict[str, int]]:
+    """Read /proc/meminfo on Linux. Returns None if unavailable."""
+    try:
+        with open("/proc/meminfo") as f:
+            meminfo = {}
+            for line in f:
+                parts = line.split(":")
+                if len(parts) == 2:
+                    key = parts[0].strip()
+                    value = parts[1].strip().replace(" kB", "")
+                    try:
+                        meminfo[key] = int(value) * 1024
+                    except ValueError:
+                        pass
+            return meminfo
+    except (FileNotFoundError, IOError, OSError):
+        return None
+
+
+def _memory_usage_from_proc() -> Optional[Tuple[str, str, float]]:
+    """Compute memory usage from /proc/meminfo (Linux only)."""
+    meminfo = _read_proc_meminfo()
+    if meminfo is None:
+        return None
+    total = meminfo.get("MemTotal", 0)
+    available = meminfo.get("MemAvailable", 0)
+    if total == 0:
+        return None
+    used = total - available
+    pct = (used / total) * 100
+    return _format_memory_result(pct, used, total)
+
+
+def _memory_usage_from_sysctl() -> Optional[Tuple[str, str, float]]:
+    """Compute memory usage via sysctl (macOS/BSD)."""
+    try:
+        import struct
+        # hw.memsize on macOS returns total physical memory in bytes
+        total = int(
+            subprocess.check_output(["sysctl", "-n", "hw.memsize"], stderr=subprocess.DEVNULL)
+            .decode()
+            .strip()
+        )
+        # vm_page_free_count + vm_page_speculative_count gives available pages
+        page_size = int(
+            subprocess.check_output(["sysctl", "-n", "hw.pagesize"], stderr=subprocess.DEVNULL)
+            .decode()
+            .strip()
+        )
+        free_pages = int(
+            subprocess.check_output(["sysctl", "-n", "vm.page_free_count"], stderr=subprocess.DEVNULL)
+            .decode()
+            .strip()
+        )
+        speculative_pages = int(
+            subprocess.check_output(["sysctl", "-n", "vm.page_speculative_count"], stderr=subprocess.DEVNULL)
+            .decode()
+            .strip()
+        )
+        available = (free_pages + speculative_pages) * page_size
+        used = total - available
+        pct = (used / total) * 100 if total > 0 else 0
+        return _format_memory_result(pct, used, total)
+    except (subprocess.SubprocessError, FileNotFoundError, ValueError, OSError):
+        return None
+
+
+def _memory_usage_from_psutil() -> Optional[Tuple[str, str, float]]:
+    """Use psutil if available for cross-platform memory info."""
+    try:
+        import psutil  # type: ignore
+        mem = psutil.virtual_memory()
+        return _format_memory_result(mem.percent, mem.used, mem.total)
+    except ImportError:
+        return None
+
+
+def _format_memory_result(pct: float, used: int, total: int) -> Tuple[str, str, float]:
+    used_gb = used / (1024 ** 3)
+    total_gb = total / (1024 ** 3)
+    if pct < MEMORY_THRESHOLD_WARNING:
+        return "OK", f"{pct:.1f}% used ({used_gb:.1f}GB/{total_gb:.1f}GB)", pct
+    elif pct < MEMORY_THRESHOLD_CRITICAL:
+        return "WARNING", f"{pct:.1f}% used ({used_gb:.1f}GB/{total_gb:.1f}GB)", pct
+    else:
+        return "CRITICAL", f"{pct:.1f}% used ({used_gb:.1f}GB/{total_gb:.1f}GB)", pct
+
+
+def check_memory_usage() -> Tuple[str, str, float]:
+    """
+    Check memory usage with cross-platform fallbacks.
+
+    Priority:
+    1. /proc/meminfo (Linux)
+    2. psutil (cross-platform, if installed)
+    3. sysctl (macOS/BSD)
+    4. WARNING with explanation if all fail
+    """
+    result = _memory_usage_from_proc()
+    if result is not None:
+        return result
+
+    result = _memory_usage_from_psutil()
+    if result is not None:
+        return result
+
+    result = _memory_usage_from_sysctl()
+    if result is not None:
+        return result
+
+    return "WARNING", "Memory check unavailable (no /proc/meminfo, psutil, or sysctl)", 0
+
+
+def check_load_average() -> Tuple[str, str, float]:
+    """
+    Check system load average with cross-platform fallback.
+
+    Priority:
+    1. /proc/loadavg (Linux)
+    2. os.getloadavg() (POSIX — macOS, BSD, Linux)
+    3. WARNING with explanation if all fail
+    """
+    try:
+        with open("/proc/loadavg") as f:
+            parts = f.read().strip().split()
+            load = float(parts[0])
+    except (FileNotFoundError, IOError, OSError):
+        try:
+            load_avgs = os.getloadavg()
+            load = load_avgs[0]
+        except (AttributeError, OSError):
+            return "WARNING", "Load check unavailable (no /proc/loadavg or os.getloadavg())", 0
+
+    cpu_count = os.cpu_count() or 1
+    load_pct = (load / cpu_count) * 100
+
+    if load_pct < 70:
+        return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    elif load_pct < 90:
+        return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    else:
+        return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+
 
 def check_http_service(host: str, port: int, path: str, timeout: int) -> Tuple[str, str, int]:
     import http.client
@@ -149,56 +295,10 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
         return "WARNING", f"Cannot check: {e}", 0
 
 
-def check_memory_usage() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
-
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
-
-        if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-        elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
-        else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
-
-
-def check_load_average() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
-
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
-
-
 # ---------------------------------------------------------------------------
 # HEALTH CHECK RUNNER
 # ---------------------------------------------------------------------------
+
 
 def run_health_checks(service: Optional[str] = None, json_output: bool = False) -> Dict[str, Any]:
     results: Dict[str, Any] = {

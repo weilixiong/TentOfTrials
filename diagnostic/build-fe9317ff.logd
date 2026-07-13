@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-07-14T05:37:55.180492",
+  "hostname": "iZ2zeblr7v0sb6ge3pl74yZ",
+  "services": {
+    "backend": {
+      "status": "CRITICAL",
+      "detail": "[Errno 111] Connection refused",
+      "code": 0,
+      "endpoint": "http://localhost:8080/health"
+    },
+    "market": {
+      "status": "CRITICAL",
+      "detail": "[Errno 111] Connection refused",
+      "code": 0,
+      "endpoint": "http://localhost:8081/health"
+    },
+    "frailbox": {
+      "status": "CRITICAL",
+      "detail": "[Errno 111] Connection refused",
+      "code": 0,
+      "endpoint": "http://localhost:8082/health"
+    },
+    "frontend": {
+      "status": "CRITICAL",
+      "detail": "[Errno 111] Connection refused",
+      "code": 0,
+      "endpoint": "http://localhost:3000/"
+    }
+  },
+  "infrastructure": {
+    "postgresql": {
+      "status": "CRITICAL",
+      "detail": "Connection refused",
+      "endpoint": "localhost:5432"
+    },
+    "redis": {
+      "status": "CRITICAL",
+      "detail": "Connection refused",
+      "endpoint": "localhost:6379"
+    },
+    "kafka": {
+      "status": "CRITICAL",
+      "detail": "Connection refused",
+      "endpoint": "localhost:9092"
+    }
+  },
+  "system": {
+    "disk": {
+      "status": "OK",
+      "detail": "44.7% used (17GB/39GB)"
+    },
+    "memory": {
+      "status": "OK",
+      "detail": "71.9% used (1.1GB/1.6GB)"
+    },
+    "load": {
+      "status": "OK",
+      "detail": "Load: 0.24 (12% of 2 cores)"
+    }
+  },
+  "overall_status": "DEGRADED"
+}
