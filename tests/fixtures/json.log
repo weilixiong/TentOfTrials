@@ -1,0 +1,4 @@
+{"timestamp": "2026-07-13T01:00:00Z", "level": "info", "service": "auth", "message": "User login successful"}
+{"time": "2026-07-13T01:05:00Z", "severity": "error", "logger": "db", "msg": "Connection timeout to postgres"}
+{"@timestamp": "2026-07-13T01:10:00Z", "lvl": "warn", "app": "payment", "event": "Stripe API response delayed"}
+{"invalid_json": true
