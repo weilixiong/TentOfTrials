@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-07-13T09:19:44.636984+00:00",
+  "commit": "bf2147ac",
+  "diagnostic_logd": "diagnostic/build-bf2147ac.logd",
+  "compact_placeholder": true,
+  "original_logd_size_bytes": 31336696,
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": null,
+  "decrypt_command": null,
+  "total_modules": 3,
+  "passed": 1,
+  "failed": 2,
+  "modules": [
+    {
+      "name": "backend",
+      "status": "FAIL",
+      "elapsed_seconds": 2.463,
+      "artifact": null
+    },
+    {
+      "name": "frontend",
+      "status": "PASS",
+      "elapsed_seconds": 7.155,
+      "artifact": "/tmp/TentOfTrials/frontend/dist"
+    },
+    {
+      "name": "openapi-tools",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    }
+  ],
+  "pr_note": "Compact placeholder retained to satisfy diagnostic CI; the original 31,336,696-byte bundle was removed from the PR."
+}

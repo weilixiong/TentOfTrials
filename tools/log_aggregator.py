@@ -104,12 +104,14 @@ class LogParser:
         return 'unknown'
 
     def extract_service(self, line: str) -> Optional[str]:
-        match = re.search(r'\[(\w+)\]', line)
+        # Allow hyphens in service names (e.g. [order-service])
+        match = re.search(r'\[([\w-]+)\]', line)
         if match:
             return match.group(1)
-        match = re.search(r'(\w+)\s*:', line)
-        if match and match.group(1).isupper():
-            return match.group(1)
+        # Find the first all-uppercase word followed by a colon
+        for match in re.finditer(r'(\w+)\s*:', line):
+            if match.group(1).isupper():
+                return match.group(1)
         return None
 
 
@@ -121,8 +123,16 @@ class JSONLogParser(LogParser):
             entry = json.loads(line.strip())
             if not isinstance(entry, dict):
                 return None
+            raw_ts = entry.get('timestamp') or entry.get('time') or entry.get('@timestamp')
+            # Normalise ISO-8601 string timestamps to epoch seconds so the
+            # aggregator's fromtimestamp() calls do not raise TypeError.
+            parsed_ts = raw_ts
+            if isinstance(raw_ts, str):
+                parsed_ts = self.extract_timestamp(raw_ts)
+                if parsed_ts is None:
+                    parsed_ts = raw_ts  # keep original if unparseable
             return {
-                'timestamp': entry.get('timestamp') or entry.get('time') or entry.get('@timestamp'),
+                'timestamp': parsed_ts,
                 'level': entry.get('level') or entry.get('severity') or entry.get('lvl', 'info'),
                 'service': entry.get('service') or entry.get('logger') or entry.get('app'),
                 'message': entry.get('message') or entry.get('msg') or entry.get('event', ''),
@@ -187,7 +197,7 @@ class NginxLogParser(LogParser):
             'message': match.group(5),
             'fields': {
                 'remote_addr': match.group(1),
-                'remote_user': match.group(2),
+                'remote_user': match.group(3),
                 'request': match.group(5),
                 'status': status_code,
                 'body_bytes': match.group(7),
@@ -204,7 +214,9 @@ class NginxLogParser(LogParser):
 
 class LogAggregator:
     def __init__(self):
-        self.parsers = [JSONLogParser(), TextLogParser(), NginxLogParser()]
+        # TextLogParser is a catch-all (parses any non-empty line), so it
+        # must be tried LAST to give format-specific parsers a chance first.
+        self.parsers = [JSONLogParser(), NginxLogParser(), TextLogParser()]
         self.entries: List[Dict[str, Any]] = []
         self.level_counts: Counter = Counter()
         self.service_counts: Counter = Counter()
