@@ -1,0 +1,9 @@
+# Plain Text Log Fixtures — hand-written representative log lines
+# Uses standard timestamp and level patterns.
+
+2026-06-19 08:15:30 [api-gateway] INFO: Request received: GET /v1/users
+2026-06-19 08:15:31 [auth-service] ERROR: Authentication failed: invalid token
+2026-06-19 08:16:00 [payment-worker] WARNING: Retry attempt 2/3 for transaction tx-456
+2026-06-19 08:17:45 [db-pool] DEBUG: Connection pool stats: active=12 idle=5 waiting=0
+2026-06-19 09:00:00 [order-service] CRITICAL: Out of memory in order processing pipeline
+2026-06-20 00:00:00 [scheduler] INFO: Daily cleanup job started
