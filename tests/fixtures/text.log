@@ -1,0 +1,4 @@
+2026-07-13 01:00:00 [auth] INFO: User login successful
+2026-07-13T01:05:00 ERROR: Connection timeout to postgres
+[db] WARN: slow query detected
+not a log line at all

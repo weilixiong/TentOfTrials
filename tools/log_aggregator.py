@@ -107,9 +107,11 @@ class LogParser:
         match = re.search(r'\[(\w+)\]', line)
         if match:
             return match.group(1)
-        match = re.search(r'(\w+)\s*:', line)
+        match = re.search(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*:', line)
         if match and match.group(1).isupper():
-            return match.group(1)
+            service = match.group(1)
+            if service.upper() not in {"ERROR", "FATAL", "CRITICAL", "WARN", "WARNING", "INFO", "NOTICE", "DEBUG", "TRACE"}:
+                return service
         return None
 
 

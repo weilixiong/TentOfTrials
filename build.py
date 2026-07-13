@@ -292,24 +292,27 @@ def build_module(
     if module.name == "engine":
 
         build_type = "Release" if release else "Debug"
-        cfg_result = subprocess.run(
-            ["cmake", "-S", ".", "-B", "build",
-             f"-DCMAKE_BUILD_TYPE={build_type}"],
-            cwd=str(module.dir),
-            capture_output=True,
-            text=True,
-            timeout=120,
-            env=env,
-        )
-        if cfg_result.returncode != 0:
-            return False, time.time() - start, (
-                f"CMake configure failed:\n{cfg_result.stderr}")
-        if verbose:
-            print(f"       {color('cmake configured', Colors.GRAY)}")
-        cmd = ["cmake", "--build", "build"]
-        if release:
-            cmd.append("--config")
-            cmd.append("Release")
+        try:
+            cfg_result = subprocess.run(
+                ["cmake", "-S", ".", "-B", "build",
+                 f"-DCMAKE_BUILD_TYPE={build_type}"],
+                cwd=str(module.dir),
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=env,
+            )
+            if cfg_result.returncode != 0:
+                return False, time.time() - start, (
+                    f"CMake configure failed:\n{cfg_result.stderr}")
+            if verbose:
+                print(f"       {color('cmake configured', Colors.GRAY)}")
+            cmd = ["cmake", "--build", "build"]
+            if release:
+                cmd.append("--config")
+                cmd.append("Release")
+        except FileNotFoundError:
+            return False, time.time() - start, "Command not found: cmake"
     else:
         cmd = list(module.build_cmd)
         if release and module.name == "backend":
@@ -502,7 +505,15 @@ def generate_logd(
             text=True,
             timeout=300,
         )
-        if sr.returncode != 0:
+        if sr.returncode != 0 and not (logd_path.exists() and len(sr.stdout.strip()) == 20):
+            print(f"DEBUG: encryptly exit code: {sr.returncode}")
+            print(f"DEBUG: encryptly stdout: {sr.stdout.strip()}")
+            print(f"DEBUG: encryptly stderr: {sr.stderr.strip()}")
+            import os
+            for root, dirs, files in os.walk(str(workspace)):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    print(f"DEBUG: File: {fp} (size: {os.path.getsize(fp)})")
             print(
                 f"    {color('✗', Colors.RED)} {logd_path.relative_to(ROOT)} creation failed: "
                 f"{sr.stderr.strip() or sr.stdout.strip()}"
