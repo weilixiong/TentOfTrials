@@ -150,50 +150,108 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 
 def check_memory_usage() -> Tuple[str, str, float]:
+    # Linux: use /proc/meminfo for precise memory info
+    if sys.platform == "linux":
+        try:
+            with open("/proc/meminfo") as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip().replace(" kB", "")
+                        try:
+                            meminfo[key] = int(value) * 1024
+                        except ValueError:
+                            pass
+
+            total = meminfo.get("MemTotal", 0)
+            available = meminfo.get("MemAvailable", 0)
+            used = total - available
+            pct = (used / total) * 100 if total > 0 else 0
+
+            if pct < MEMORY_THRESHOLD_WARNING:
+                return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+            elif pct < MEMORY_THRESHOLD_CRITICAL:
+                return "WARNING", f"{pct:.1f}% used", pct
+            else:
+                return "CRITICAL", f"{pct:.1f}% used", pct
+        except Exception as e:
+            return "WARNING", f"Cannot check /proc/meminfo: {e}", 0
+
+    # Non-Linux fallback: use psutil if available, otherwise resource module
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
-
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
-
+        import psutil
+        mem = psutil.virtual_memory()
+        pct = mem.percent
+        total = mem.total
+        used = mem.used
         if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB) [psutil]", pct
         elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
+            return "WARNING", f"{pct:.1f}% used [psutil]", pct
         else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
+            return "CRITICAL", f"{pct:.1f}% used [psutil]", pct
+    except ImportError:
+        pass
+
+    # Fallback: use resource module (Unix only) or signal
+    try:
+        import resource
+        # rusage: ru_maxrss is in KB on Linux, bytes on macOS
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        if sys.platform == "darwin":
+            maxrss = usage.ru_maxrss  # bytes on macOS
+        else:
+            maxrss = usage.ru_maxrss * 1024  # KB to bytes
+        # Without total system memory, report process RSS
+        rss_gb = maxrss / (1024**3)
+        if rss_gb < 1:
+            return "OK", f"Process RSS: {rss_gb:.2f}GB [resource]", 0
+        elif rss_gb < 4:
+            return "WARNING", f"Process RSS: {rss_gb:.2f}GB [resource]", 50
+        else:
+            return "CRITICAL", f"Process RSS: {rss_gb:.2f}GB [resource]", 90
     except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+        return "WARNING", f"Memory check unavailable on {sys.platform}: {e}", 0
 
 
 def check_load_average() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+    # Linux: use /proc/loadavg
+    if sys.platform == "linux":
+        try:
+            with open("/proc/loadavg") as f:
+                parts = f.read().strip().split()
+                load = float(parts[0])
+                cpu_count = os.cpu_count() or 1
+                load_pct = (load / cpu_count) * 100
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+                if load_pct < 70:
+                    return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                elif load_pct < 90:
+                    return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                else:
+                    return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        except Exception as e:
+            return "WARNING", f"Cannot check /proc/loadavg: {e}", 0
+
+    # Non-Linux fallback: use os.getloadavg() (available on Unix: macOS, BSD)
+    try:
+        load = os.getloadavg()[0]  # 1-minute average
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load / cpu_count) * 100
+
+        if load_pct < 70:
+            return "OK", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores) [getloadavg]", load
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores) [getloadavg]", load
+        else:
+            return "CRITICAL", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores) [getloadavg]", load
+    except (AttributeError, OSError):
+        pass
+
+    # Final fallback: Windows or unsupported platform
+    return "OK", f"Load average not available on {sys.platform}", 0
 
 
 # ---------------------------------------------------------------------------
