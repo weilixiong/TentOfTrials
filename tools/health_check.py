@@ -149,51 +149,125 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
         return "WARNING", f"Cannot check: {e}", 0
 
 
+def _check_memory_linux() -> Optional[Tuple[str, str, float]]:
+    """Read memory usage from /proc/meminfo (Linux)."""
+    with open("/proc/meminfo") as f:
+        meminfo = {}
+        for line in f:
+            parts = line.split(":")
+            if len(parts) == 2:
+                key = parts[0].strip()
+                value = parts[1].strip().replace(" kB", "")
+                try:
+                    meminfo[key] = int(value) * 1024
+                except ValueError:
+                    pass
+
+    total = meminfo.get("MemTotal", 0)
+    available = meminfo.get("MemAvailable", 0)
+    used = total - available
+    pct = (used / total) * 100 if total > 0 else 0
+
+    if pct < MEMORY_THRESHOLD_WARNING:
+        return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+    elif pct < MEMORY_THRESHOLD_CRITICAL:
+        return "WARNING", f"{pct:.1f}% used", pct
+    else:
+        return "CRITICAL", f"{pct:.1f}% used", pct
+
+    return None
+
+
+def _check_memory_fallback() -> Tuple[str, str, float]:
+    """Cross-platform memory check using Python stdlib only.
+
+    On Linux, /proc/meminfo is preferred (called separately).
+    On other POSIX systems, we attempt os.sysconf() for total pages.
+    If unavailable, we report WARNING with platform details.
+    """
+    # Try os.sysconf for total physical pages (Unix/POSIX)
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        total_pages = os.sysconf("SC_PHYS_PAGES")
+        if page_size > 0 and total_pages > 0:
+            total = page_size * total_pages
+            detail = f"{total // (1024**3)}GB total (sysconf)"
+            return "OK", detail, 0.0
+    except (ValueError, AttributeError):
+        pass
+
+    return "WARNING", f"Memory check not available on {sys.platform}", 0.0
+
+
 def check_memory_usage() -> Tuple[str, str, float]:
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
+        result = _check_memory_linux()
+        if result is not None:
+            return result
+    except (FileNotFoundError, PermissionError):
+        pass
+    except Exception:
+        pass
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
-
-        if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-        elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
-        else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
+    try:
+        return _check_memory_fallback()
     except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+        return "WARNING", f"Cannot check: {e}", 0.0
+
+
+def _check_load_linux() -> Optional[Tuple[str, str, float]]:
+    """Read load average from /proc/loadavg (Linux)."""
+    with open("/proc/loadavg") as f:
+        parts = f.read().strip().split()
+        load = float(parts[0])
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load / cpu_count) * 100
+
+        if load_pct < 70:
+            return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        else:
+            return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+
+    return None
+
+
+def _check_load_fallback() -> Tuple[str, str, float]:
+    """Cross-platform load average using os.getloadavg().
+
+    Available on Unix/POSIX systems (Linux, macOS, BSD).
+    Falls back to WARNING on platforms without os.getloadavg().
+    """
+    if hasattr(os, "getloadavg"):
+        load_1, load_5, load_15 = os.getloadavg()
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load_1 / cpu_count) * 100
+
+        if load_pct < 70:
+            return "OK", f"Load: {load_1:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load_1
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load_1:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load_1
+        else:
+            return "CRITICAL", f"Load: {load_1:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load_1
+
+    return "WARNING", f"Load check not available on {sys.platform}", 0.0
 
 
 def check_load_average() -> Tuple[str, str, float]:
     try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+        result = _check_load_linux()
+        if result is not None:
+            return result
+    except (FileNotFoundError, PermissionError):
+        pass
+    except Exception:
+        pass
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    try:
+        return _check_load_fallback()
     except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+        return "WARNING", f"Cannot check: {e}", 0.0
 
 
 # ---------------------------------------------------------------------------
