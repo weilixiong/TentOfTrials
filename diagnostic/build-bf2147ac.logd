@@ -1,0 +1,18 @@
+# TentOfTrials diagnostic for log parser fixtures
+commit=bf2147ac
+ts=2026-07-17T06:36:55.268083+00:00
+host=DESKTOP-VDAQIS6
+user=Vendex
+python=3.14.6
+validation_exit=0
+stdout:
+{
+  "json_ok": 3,
+  "text_ok": 3,
+  "nginx_ok": 3,
+  "failures": [],
+  "ok": true
+}
+
+stderr:
+
