@@ -33,6 +33,7 @@ Usage:
 import argparse
 import json
 import os
+import platform
 import socket
 import ssl
 import subprocess
@@ -131,6 +132,139 @@ def check_certificate_expiry(host: str, port: int = 443) -> Tuple[str, str, int]
         return "WARNING", f"Cannot check: {e}", 0
 
 
+# ---------------------------------------------------------------------------
+# PLATFORM MEMORY/LOAD COLLECTORS
+# ---------------------------------------------------------------------------
+# The original implementation read Linux-only /proc/meminfo and /proc/loadavg.
+# On macOS and other non-Linux platforms those files do not exist, so the
+# checks degraded to WARNING without gathering any real data. The collectors
+# below try the first source that works for the current platform and return
+# (total_bytes, available_bytes) / (load_1m, cpu_count), or None when no
+# portable source is available (e.g. Windows, where the honest result is a
+# WARNING rather than fabricated numbers).
+
+
+def _read_linux_memory() -> Optional[Tuple[int, int]]:
+    """Memory (total, available) in bytes from /proc/meminfo, or None."""
+    try:
+        with open("/proc/meminfo") as f:
+            meminfo: Dict[str, int] = {}
+            for line in f:
+                parts = line.split(":")
+                if len(parts) == 2:
+                    key = parts[0].strip()
+                    value = parts[1].strip().replace(" kB", "")
+                    try:
+                        meminfo[key] = int(value) * 1024
+                    except ValueError:
+                        pass
+        total = meminfo.get("MemTotal", 0)
+        available = meminfo.get("MemAvailable", 0)
+        if total > 0:
+            return total, available
+    except OSError:
+        pass
+    return None
+
+
+def _read_macos_memory() -> Optional[Tuple[int, int]]:
+    """Memory (total, available) in bytes via vm_stat, or None."""
+    try:
+        pagesize_out = subprocess.run(
+            ["sysctl", "-n", "hw.pagesize"], capture_output=True, text=True, timeout=5
+        )
+        pagesize = int(pagesize_out.stdout.strip() or "4096")
+        vm = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5)
+        stats: Dict[str, int] = {}
+        for line in vm.stdout.splitlines():
+            if ":" in line:
+                key, val = line.split(":", 1)
+                digits = "".join(ch for ch in val if ch.isdigit())
+                if digits:
+                    stats[key.strip()] = int(digits) * pagesize
+        total = (
+            stats.get("Pages free", 0)
+            + stats.get("Pages active", 0)
+            + stats.get("Pages inactive", 0)
+            + stats.get("Pages speculative", 0)
+            + stats.get("Pages wired down", 0)
+            + stats.get("Pages occupied by compressor", 0)
+        )
+        # Free + speculative pages are the most readily reclaimable.
+        available = stats.get("Pages free", 0) + stats.get("Pages speculative", 0)
+        if total > 0:
+            return total, available
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    return None
+
+
+def _collect_memory() -> Optional[Tuple[int, int]]:
+    """First working (total, available) memory reading for this platform."""
+    if platform.system() == "Linux":
+        res = _read_linux_memory()
+        if res:
+            return res
+    if platform.system() == "Darwin":
+        res = _read_macos_memory()
+        if res:
+            return res
+    # Generic fallbacks in case the platform check was wrong / files moved.
+    for reader in (_read_linux_memory, _read_macos_memory):
+        try:
+            res = reader()
+            if res:
+                return res
+        except Exception:
+            continue
+    return None
+
+
+def _read_linux_load() -> Optional[Tuple[float, int]]:
+    """Load (1m, cpu_count) from /proc/loadavg, or None."""
+    try:
+        with open("/proc/loadavg") as f:
+            load = float(f.read().strip().split()[0])
+            return load, os.cpu_count() or 1
+    except OSError:
+        pass
+    return None
+
+
+def _read_macos_load() -> Optional[Tuple[float, int]]:
+    """Load (1m, cpu_count) via sysctl vm.loadavg, or None."""
+    try:
+        out = subprocess.run(
+            ["sysctl", "-n", "vm.loadavg"], capture_output=True, text=True, timeout=5
+        )
+        parts = out.stdout.split()
+        if parts:
+            return float(parts[0]), os.cpu_count() or 1
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    return None
+
+
+def _collect_load() -> Optional[Tuple[float, int]]:
+    """First working (load_1m, cpu_count) for this platform."""
+    if platform.system() == "Linux":
+        res = _read_linux_load()
+        if res:
+            return res
+    if platform.system() == "Darwin":
+        res = _read_macos_load()
+        if res:
+            return res
+    for reader in (_read_linux_load, _read_macos_load):
+        try:
+            res = reader()
+            if res:
+                return res
+        except Exception:
+            continue
+    return None
+
+
 def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
     try:
         stat = os.statvfs(path)
@@ -150,50 +284,34 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 
 def check_memory_usage() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
+    result = _collect_memory()
+    if result is None:
+        return "WARNING", "Cannot read memory on this platform (no /proc/meminfo or vm_stat)", 0
+    total, available = result
+    used = total - available
+    pct = (used / total) * 100 if total > 0 else 0
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
-
-        if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-        elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
-        else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+    if pct < MEMORY_THRESHOLD_WARNING:
+        return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+    elif pct < MEMORY_THRESHOLD_CRITICAL:
+        return "WARNING", f"{pct:.1f}% used", pct
+    else:
+        return "CRITICAL", f"{pct:.1f}% used", pct
 
 
 def check_load_average() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+    result = _collect_load()
+    if result is None:
+        return "WARNING", "Cannot read load average on this platform (no /proc/loadavg or sysctl)", 0
+    load, cpu_count = result
+    load_pct = (load / cpu_count) * 100
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+    if load_pct < 70:
+        return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    elif load_pct < 90:
+        return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    else:
+        return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
 
 
 # ---------------------------------------------------------------------------
