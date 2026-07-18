@@ -1,0 +1,15 @@
+{"timestamp": "2024-03-15T08:12:33", "level": "info", "service": "api_gateway", "message": "Request received: GET /api/v1/users", "request_id": "req-abc123"}
+{"timestamp": "2024-03-15T08:12:34", "level": "info", "service": "auth_service", "message": "Token validated successfully", "request_id": "req-abc123", "user_id": "usr-456"}
+{"timestamp": "2024-03-15T08:12:35", "level": "error", "service": "user_db", "message": "Connection pool exhausted, retrying in 100ms", "pool_size": 10, "active": 10, "queue_depth": 5}
+{"timestamp": "2024-03-15T08:12:36", "level": "warn", "service": "api_gateway", "message": "Response latency 3200ms for GET /api/v1/reports/summary", "threshold_ms": 2000}
+{"timestamp": "2024-03-15T08:12:37", "level": "debug", "service": "cache_service", "message": "Cache miss for key user:456:profile, fetching from origin", "cache_ttl": 300}
+{"timestamp": "2024-03-15T08:12:38", "level": "error", "service": "payment_processor", "message": "Stripe API returned 402: card_declined", "payment_intent": "pi_987zyx", "customer_id": "cus_555"}
+{"timestamp": "2024-03-15T08:12:39", "level": "info", "service": "notification_service", "message": "Email queued for delivery to user@example.com", "template": "welcome_email", "email_id": "em_444"}
+{"timestamp": "2024-03-15T08:12:40", "level": "critical", "service": "order_service", "message": "Order processing pipeline stalled for 60 seconds, manual intervention required", "order_id": "ord_789", "pipeline": "checkout", "stall_seconds": 60}
+{"timestamp": "2024-03-15T08:12:41", "level": "info", "service": "search_service", "message": "Index rebuilt for collection products, 15423 documents indexed", "index_time_ms": 3400, "document_count": 15423}
+{"timestamp": "2024-03-15T08:12:42", "level": "warn", "service": "user_db", "message": "Slow query detected (4500ms): SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC", "query_hash": "a1b2c3", "duration_ms": 4500}
+{"timestamp": "2024-03-15T08:12:43", "level": "error", "service": "file_upload", "message": "S3 upload failed for key uploads/2024/03/15/report.pdf: RequestTimeout", "file_size": 15700000, "bucket": "production-uploads"}
+{"timestamp": "2024-03-15T08:12:44", "level": "info", "service": "analytics_service", "message": "Page view event recorded: /products/electronics/123", "session_id": "sess_abc", "page_id": "prod_123"}
+{"timestamp": "2024-03-15T08:12:45", "level": "fatal", "service": "rate_limiter", "message": "Redis cluster unreachable after 5 retries, circuit breaker opened", "retry_count": 5, "circuit_state": "open"}
+{"timestamp": "2024-03-15T08:12:46", "level": "info", "service": "webhook_service", "message": "Webhook delivered to https://partner.example.com/callback with status 200", "attempt": 1, "webhook_id": "wh_333"}
+{"timestamp": "2024-03-15T08:12:47", "level": "trace", "service": "grpc_service", "message": "Deserializing protobuf message type: order.v1.CreateOrderRequest", "message_size": 892}

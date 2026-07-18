@@ -1,0 +1,15 @@
+2024-03-15 08:12:33 [gateway] INFO: Health check passed for upstream service auth_service
+2024-03-15 08:12:34 [gateway] INFO: Health check passed for upstream service user_db
+2024-03-15 08:12:35 [payment] ERROR: Transaction settlement failed for batch PAY_20240315_001: insufficient funds
+2024-03-15 08:12:36 [payment] WARNING: Retry attempt 2/5 for batch PAY_20240315_001
+2024-03-15 08:12:37 [pipeline] INFO: ETL job completed for table orders (2024-03-14), 45231 rows processed
+2024-03-15 08:12:38 [pipeline] ERROR: Validation failed for table orders: referential integrity check detected 47 orphaned records
+2024-03-15 08:12:39 [scheduler] INFO: Cron job cleanup_expired_tokens started
+2024-03-15 08:12:40 [scheduler] INFO: Cron job cleanup_expired_tokens completed: 1289 tokens purged
+2024-03-15 08:12:41 [balancer] WARNING: Backend pool api_servers has 2/5 healthy instances, scaling up
+2024-03-15 08:12:42 [balancer] CRITICAL: Backend pool api_servers has 0/5 healthy instances, ALL TRAFFIC FAILING
+2024-03-15 08:12:43 [cdn_purge] INFO: Cache purge request received for path /assets/*, 15000 keys marked for invalidation
+2024-03-15 08:12:44 [cdn_purge] ERROR: Fastly API returned 500 during purge for service abc123, will retry
+2024-03-15 08:12:45 [backup] INFO: Incremental backup started for volume vol_prod_db_01, size 234GB
+2024-03-15 08:12:46 [backup] WARNING: Backup throughput below threshold: 45MB/s (expected >100MB/s), check network
+2024-03-15 08:12:47 [backup] ERROR: Backup failed: snapshot creation timed out after 300 seconds

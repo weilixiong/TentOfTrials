@@ -1,0 +1,15 @@
+Mar 15 08:12:33 ip-10-0-1-45 kernel: [123456.789] usb 1-1: new high-speed USB device number 5 using xhci_hcd
+Mar 15 08:12:34 ip-10-0-1-45 sshd[1234]: Accepted publickey for ubuntu from 192.168.1.10 port 54321 ssh2: RSA SHA256:abc123def456
+Mar 15 08:12:35 ip-10-0-1-45 dockerd[1567]: time="2024-03-15T08:12:35.000Z" level=error msg="Container healthcheck failed" container=nginx-proxy error="Get \"http://localhost:80/health\": dial tcp 127.0.0.1:80: connect: connection refused"
+Mar 15 08:12:36 ip-10-0-1-45 kubelet[1890]: E0315 08:12:36.123456       1 node.go:123] "Failed to update node status" err="timeout waiting for etcd connection"
+Mar 15 08:12:37 ip-10-0-1-45 postgres[2101]: [3-1] LOG:  checkpoint starting: time
+Mar 15 08:12:38 ip-10-0-1-45 postgres[2101]: [3-2] ERROR:  could not open file "pg_xlog/pg_xlog_archive_status/00000001000000000000000A": No such file or directory
+Mar 15 08:12:39 ip-10-0-1-45 postgres[2101]: [3-3] FATAL:  WAL archival failure, manual recovery required
+Mar 15 08:12:40 ip-10-0-1-45 nginx[2345]: 2024/03/15 08:12:40 [error] 2345#2345: *789 upstream timed out (110: Connection timed out) while connecting to upstream, client: 192.168.1.10, server: api.example.com, upstream: "http://10.0.0.45:3000"
+Mar 15 08:12:41 ip-10-0-1-45 cron[2567]: (root) CMD (/usr/sbin/logrotate -f /etc/logrotate.d/nginx)
+Mar 15 08:12:42 ip-10-0-1-45 kernel: [123457.123] perf: interrupt took too long (3148 > 2500), lowering kernel.perf_event_max_sample_rate to 63500
+Mar 15 08:12:43 ip-10-0-1-45 certbot[2789]: Attempting to renew certificate for app.example.com from Let's Encrypt
+Mar 15 08:12:44 ip-10-0-1-45 certbot[2789]: Certificate renewed successfully, deploying to nginx
+Mar 15 08:12:45 ip-10-0-1-45 sshd[1234]: Failed password for root from 203.0.113.50 port 65432 ssh2
+Mar 15 08:12:46 ip-10-0-1-45 kubelet[1890]: I0315 08:12:46.654321       1 event.go:307] "Event occurred" object="default/nginx-7d8b9c5d6f-abcde" kind="Pod" reason="Unhealthy" message="Readiness probe failed: Get \"http://10.0.0.88:8080/ready\": dial tcp 10.0.0.88:8080: connect: connection refused"
+Mar 15 08:12:47 ip-10-0-1-45 systemd[1]: Started session c12345 of user ubuntu.

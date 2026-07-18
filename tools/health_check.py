@@ -33,6 +33,7 @@ Usage:
 import argparse
 import json
 import os
+import platform
 import socket
 import ssl
 import subprocess
@@ -149,51 +150,114 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
         return "WARNING", f"Cannot check: {e}", 0
 
 
+def _read_proc_meminfo():
+    meminfo = {}
+    with open("/proc/meminfo") as f:
+        for line in f:
+            parts = line.split(":")
+            if len(parts) == 2:
+                key = parts[0].strip()
+                value = parts[1].strip().replace(" kB", "")
+                try:
+                    meminfo[key] = int(value) * 1024
+                except ValueError:
+                    pass
+    return meminfo
+
+
+def _macos_memory_usage():
+    try:
+        result = subprocess.run(
+            ["vm_stat"],
+            capture_output=True, text=True, check=True
+        )
+        pages = {}
+        for line in result.stdout.split("\n"):
+            line = line.strip()
+            if ":" in line:
+                key, val = line.split(":", 1)
+                val = val.strip().rstrip(".")
+                try:
+                    pages[key.strip()] = int(val)
+                except ValueError:
+                    pass
+        page_size = int(subprocess.run(
+            ["pagesize"], capture_output=True, text=True, check=True
+        ).stdout.strip())
+        total = pages.get("Pages active", 0) + pages.get("Pages wired down", 0) + pages.get("Pages inactive", 0) + pages.get("Pages free", 0)
+        used = (pages.get("Pages active", 0) + pages.get("Pages wired down", 0)) * page_size
+        free = pages.get("Pages free", 0) * page_size
+        pct = (used / (used + free)) * 100 if (used + free) > 0 else 0
+        return used, total * page_size, pct
+    except Exception:
+        return None, None, None
+
+
+def _memory_usage_pct(used, total):
+    return (used / total) * 100 if total > 0 else 0
+
+
+def _format_memory_result(pct, used, total):
+    if pct < MEMORY_THRESHOLD_WARNING:
+        return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+    elif pct < MEMORY_THRESHOLD_CRITICAL:
+        return "WARNING", f"{pct:.1f}% used", pct
+    else:
+        return "CRITICAL", f"{pct:.1f}% used", pct
+
+
 def check_memory_usage() -> Tuple[str, str, float]:
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
-
+        meminfo = _read_proc_meminfo()
         total = meminfo.get("MemTotal", 0)
         available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
+        if total and available:
+            used = total - available
+            pct = _memory_usage_pct(used, total)
+            return _format_memory_result(pct, used, total)
+    except Exception:
+        pass
 
-        if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-        elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
-        else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+    # Fallback: macOS via vm_stat
+    if platform.system() == "Darwin":
+        used, total, pct = _macos_memory_usage()
+        if used is not None and total:
+            return _format_memory_result(pct, used, total)
+        return "WARNING", "Could not determine memory usage on macOS", 0
+
+    # Fallback: psutil if available
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        return _format_memory_result(mem.percent, mem.used, mem.total)
+    except ImportError:
+        pass
+
+    return "WARNING", "Could not determine memory usage: /proc/meminfo not found", 0
 
 
 def check_load_average() -> Tuple[str, str, float]:
+    cpu_count = os.cpu_count() or 1
+
+    # Try Linux /proc/loadavg first
     try:
         with open("/proc/loadavg") as f:
             parts = f.read().strip().split()
             load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+    except Exception:
+        # Fallback: os.getloadavg() works on macOS, Linux, and BSD
+        try:
+            load = os.getloadavg()[0]
+        except (AttributeError, OSError):
+            return "WARNING", "Cannot check: no load info available", 0
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+    load_pct = (load / cpu_count) * 100
+    if load_pct < 70:
+        return "OK", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
+    elif load_pct < 90:
+        return "WARNING", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
+    else:
+        return "CRITICAL", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
 
 
 # ---------------------------------------------------------------------------
