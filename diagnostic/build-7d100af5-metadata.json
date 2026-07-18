@@ -1,0 +1,75 @@
+{
+  "generated_at": "2026-07-18T06:27:26.505153+00:00",
+  "commit": "7d100af5",
+  "diagnostic_logd": "diagnostic/build-7d100af5.logd",
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": "b400522b01e09599cbac",
+  "decrypt_command": "encryptly unpack diagnostic/build-7d100af5.logd <outdir> --password b400522b01e09599cbac",
+  "total_modules": 10,
+  "passed": 7,
+  "failed": 3,
+  "modules": [
+    {
+      "name": "backend",
+      "status": "PASS",
+      "elapsed_seconds": 47.319,
+      "artifact": "/home/runner/work/TentOfTrials/TentOfTrials/backend/target"
+    },
+    {
+      "name": "frontend",
+      "status": "PASS",
+      "elapsed_seconds": 12.25,
+      "artifact": "/home/runner/work/TentOfTrials/TentOfTrials/frontend/dist"
+    },
+    {
+      "name": "market",
+      "status": "PASS",
+      "elapsed_seconds": 17.116,
+      "artifact": "/home/runner/work/TentOfTrials/TentOfTrials/market/market"
+    },
+    {
+      "name": "frailbox",
+      "status": "PASS",
+      "elapsed_seconds": 0.502,
+      "artifact": "/home/runner/work/TentOfTrials/TentOfTrials/frailbox/frailbox"
+    },
+    {
+      "name": "engine",
+      "status": "PASS",
+      "elapsed_seconds": 16.339,
+      "artifact": "/home/runner/work/TentOfTrials/TentOfTrials/frailbox/engine/build/trial-engine"
+    },
+    {
+      "name": "compliance",
+      "status": "PASS",
+      "elapsed_seconds": 3.289,
+      "artifact": "/home/runner/work/TentOfTrials/TentOfTrials/compliance/build"
+    },
+    {
+      "name": "v2-market-stream",
+      "status": "PASS",
+      "elapsed_seconds": 0.237,
+      "artifact": null
+    },
+    {
+      "name": "nfc-scanner",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "openapi-haskell",
+      "status": "FAIL",
+      "elapsed_seconds": 17.111,
+      "artifact": null
+    },
+    {
+      "name": "openapi-tools",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    }
+  ],
+  "pr_note": "Include this metadata and diagnostic/build-7d100af5.logd in your PR. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
