@@ -104,14 +104,26 @@ class LogParser:
         return 'unknown'
 
     def extract_service(self, line: str) -> Optional[str]:
-        match = re.search(r'\[(\w+)\]', line)
+        # Try to match [service_name] pattern first (most common)
+        match = re.search(r'\[([a-zA-Z0-9_-]+)\]', line)
         if match:
-            return match.group(1)
+            service = match.group(1)
+            # Skip numeric-only IDs like PIDs [1234]
+            if not service.isdigit():
+                return service
+        
+        # Try to match syslog format: "Mon DD HH:MM:SS hostname service[pid]:"
+        # Need to skip the hostname field before service name
+        match = re.search(r'^\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+(\S+)\[\d+\]:', line)
+        if match:
+            return match.group(1).rstrip(':')
+        
+        # Try to match word: pattern for uppercase services
         match = re.search(r'(\w+)\s*:', line)
         if match and match.group(1).isupper():
             return match.group(1)
+        
         return None
-
 
 class JSONLogParser(LogParser):
     """Parses structured JSON log lines."""

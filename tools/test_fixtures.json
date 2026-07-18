@@ -1,0 +1,99 @@
+{
+  "description": "Hand-written log fixtures for parser validation",
+  "json_logs": [
+    {
+      "raw": "{\"timestamp\": \"2024-01-15T10:30:45Z\", \"level\": \"ERROR\", \"service\": \"backend\", \"message\": \"Database connection failed\"}",
+      "expected_timestamp_type": "iso8601",
+      "expected_level": "error",
+      "expected_service": "backend"
+    },
+    {
+      "raw": "{\"time\": \"2024-01-15T10:31:00Z\", \"severity\": \"WARNING\", \"logger\": \"frontend\", \"msg\": \"Slow response detected\"}",
+      "expected_timestamp_type": "iso8601",
+      "expected_level": "warning",
+      "expected_service": "frontend"
+    },
+    {
+      "raw": "{\"@timestamp\": \"2024-01-15T10:32:15Z\", \"lvl\": \"INFO\", \"app\": \"auth-service\", \"event\": \"User login successful\"}",
+      "expected_timestamp_type": "iso8601",
+      "expected_level": "info",
+      "expected_service": "auth-service"
+    },
+    {
+      "raw": "{\"timestamp\": \"2024-01-15T10:33:00Z\", \"level\": \"DEBUG\", \"service\": \"cache\", \"message\": \"Cache miss for key user:123\"}",
+      "expected_timestamp_type": "iso8601",
+      "expected_level": "debug",
+      "expected_service": "cache"
+    }
+  ],
+  "text_logs": [
+    {
+      "raw": "2024-01-15 10:30:45 [backend] ERROR: Database connection failed",
+      "expected_timestamp_type": "standard",
+      "expected_level": "error",
+      "expected_service": "backend"
+    },
+    {
+      "raw": "2024-01-15 10:31:00 [frontend] WARN: Slow response detected",
+      "expected_timestamp_type": "standard",
+      "expected_level": "warn",
+      "expected_service": "frontend"
+    },
+    {
+      "raw": "2024-01-15 10:32:15 [auth-service] INFO: User login successful",
+      "expected_timestamp_type": "standard",
+      "expected_level": "info",
+      "expected_service": "auth-service"
+    },
+    {
+      "raw": "2024-01-15 10:33:00 [cache] DEBUG: Cache miss for key user:123",
+      "expected_timestamp_type": "standard",
+      "expected_level": "debug",
+      "expected_service": "cache"
+    },
+    {
+      "raw": "Jan 15 10:34:00 server1 nginx[1234]: Connection from 192.168.1.1",
+      "expected_timestamp_type": "syslog",
+      "expected_level": "unknown",
+      "expected_service": "nginx"
+    }
+  ],
+  "nginx_logs": [
+    {
+      "raw": "192.168.1.1 - - [15/Jan/2024:10:30:45 +0000] \"GET /api/users HTTP/1.1\" 200 1234 \"-\" \"Mozilla/5.0\"",
+      "expected_timestamp_type": "nginx",
+      "expected_level": "info",
+      "expected_service": "nginx"
+    },
+    {
+      "raw": "192.168.1.2 - admin [15/Jan/2024:10:31:00 +0000] \"POST /api/login HTTP/1.1\" 401 89 \"-\" \"curl/7.68.0\"",
+      "expected_timestamp_type": "nginx",
+      "expected_level": "warn",
+      "expected_service": "nginx"
+    },
+    {
+      "raw": "192.168.1.3 - - [15/Jan/2024:10:32:15 +0000] \"GET /api/data HTTP/1.1\" 500 156 \"-\" \"Python/3.9\"",
+      "expected_timestamp_type": "nginx",
+      "expected_level": "error",
+      "expected_service": "nginx"
+    }
+  ],
+  "malformed_logs": [
+    {
+      "raw": "this is not valid json { or log format",
+      "should_parse": false
+    },
+    {
+      "raw": "",
+      "should_parse": false
+    },
+    {
+      "raw": "{\"invalid\": json without quotes}",
+      "should_parse": false
+    },
+    {
+      "raw": null,
+      "should_parse": false
+    }
+  ]
+}
