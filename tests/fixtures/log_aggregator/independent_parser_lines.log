@@ -1,0 +1,4 @@
+{"timestamp": 1717228800, "level": "ERROR", "service": "billing-api", "message": "payment capture failed", "request_id": "req-json-001", "amount_cents": 1299}
+2024-06-01 12:01:02 WARN [worker] retrying job_id=job-42 queue=emails
+203.0.113.10 - - [01/Jun/2024:12:02:03 +0000] "GET /health HTTP/1.1" 200 123 "-" "curl/8.0"
+this is not a supported structured log but should not crash
