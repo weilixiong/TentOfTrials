@@ -1,0 +1,10 @@
+{"timestamp":"2024-01-15T08:30:00.123Z","level":"INFO","service":"api-gateway","message":"Request received: GET /api/users/42","requestId":"abc-123-def","duration_ms":45}
+{"timestamp":"2024-01-15T08:30:01.456Z","level":"ERROR","service":"auth-service","message":"JWT validation failed: token expired","userId":"u-789","errorCode":"AUTH_EXPIRED"}
+{"timestamp":"2024-01-15T08:30:02.789Z","level":"WARN","service":"payment-worker","message":"Retry attempt 3/5 for transaction tx-456","txId":"tx-456","attempts":3}
+{"timestamp":"2024-01-15T08:30:03.012Z","level":"DEBUG","service":"cache-layer","message":"Cache miss for key user:42:profile, fetching from DB","cacheKey":"user:42:profile","ttl":300}
+{"timestamp":"2024-01-15T08:30:04.345Z","level":"FATAL","service":"database-proxy","message":"Connection pool exhausted: all 50 connections in use","poolSize":50,"activeCount":50,"waitQueue":12}
+{"timestamp":"2024-01-15T08:30:05.000Z","level":"INFO","service":"health-check","message":"Health check passed","checks":{"database":"ok","redis":"ok","queue":"ok"}}
+{"timestamp":"2024-01-15T08:30:10.500Z","level":"CRITICAL","service":"notification-svc","message":"SMTP server unreachable after 5 attempts","smtpHost":"smtp.example.com","port":587}
+{"timestamp":"2024-01-15T08:31:00.000Z","level":"INFO","service":"scheduler","message":"Cron job 'daily-report' completed successfully","jobName":"daily-report","duration_ms":45230}
+{"timestamp":"2024-01-15T08:31:15.111Z","level":"WARNING","service":"rate-limiter","message":"Rate limit threshold 80% reached for IP 192.168.1.100","ip":"192.168.1.100","currentRate":800,"limit":1000}
+{"timestamp":"2024-01-15T08:32:00.999Z","level":"ERROR","service":"file-upload","message":"File size 150MB exceeds maximum allowed 100MB","fileName":"large_dataset.csv","fileSizeMB":150,"maxSizeMB":100}
