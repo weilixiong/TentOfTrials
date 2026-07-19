@@ -1,0 +1,10 @@
+[ERROR] 2024-01-15 08:30:00 api-gateway - Failed to connect to upstream service 'user-service': Connection refused (retrying in 5s)
+[INFO] 2024-01-15 08:30:01 auth-service - User login successful: userId=u-42, method=oauth2, provider=github
+[WARN] 2024-01-15 08:30:02 payment-worker - Transaction tx-789 processing delayed: external API timeout after 30s
+[DEBUG] 2024-01-15 08:30:03 cache-layer - Invalidation triggered for pattern 'user:*:profile' by update event
+[FATAL] 2024-01-15 08:30:04 database-proxy - PANIC: could not write to WAL: disk full (available: 0 bytes, needed: 4096 bytes)
+[INFO] 2024-01-15 08:30:05 health-check - All systems operational: latency(db=2ms, redis=0.5ms, queue=1ms)
+[CRITICAL] 2024-01-15 08:30:10 notification-svc - Email delivery permanently failed after 3 retries: 550 Mailbox not found
+[WARNING] 2024-01-15 08:30:15 rate-limiter - Suspicious activity detected: 500 requests in 60s from IP 10.20.30.40 (triggered auto-block)
+[ERROR] 2024-01-15 08:31:00 file-upload - Upload integrity check failed: expected md5=abc123def456, got md5=789ghi012jkl
+[INFO] 2024-01-15 08:32:00 scheduler - Maintenance window starting: pausing all non-critical jobs for 2 hours
