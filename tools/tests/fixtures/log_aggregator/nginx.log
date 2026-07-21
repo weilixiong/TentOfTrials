@@ -1,0 +1,2 @@
+203.0.113.10 - alice [20/Jul/2026:18:45:03 +0000] "GET /api/lessons?q=dco HTTP/1.1" 404 321 "https://example.test/" "Mozilla/5.0"
+198.51.100.22 - - [20/Jul/2026:18:46:15 +0000] "POST /feedback HTTP/1.1" 502 42 "-" "curl/8.8.0"
