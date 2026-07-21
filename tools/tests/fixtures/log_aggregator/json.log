@@ -1,0 +1,2 @@
+{"timestamp":"2026-07-20T18:42:11Z","level":"ERROR","service":"billing-api","message":"payment capture failed","request_id":"req_42","amount_cents":1250}
+{"time":"2026-07-20T18:43:01Z","severity":"INFO","logger":"worker","msg":"queue drained","jobs":3}
