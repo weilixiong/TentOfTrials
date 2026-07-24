@@ -104,7 +104,8 @@ class LogParser:
         return 'unknown'
 
     def extract_service(self, line: str) -> Optional[str]:
-        match = re.search(r'\[(\w+)\]', line)
+        # Match [service-name] — \w+ alone misses hyphens in names like api-gateway
+        match = re.search(r'\[([\w-]+)\]', line)
         if match:
             return match.group(1)
         match = re.search(r'(\w+)\s*:', line)
