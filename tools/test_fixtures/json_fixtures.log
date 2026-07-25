@@ -1,0 +1,10 @@
+{"timestamp": "2024-01-15T10:30:00", "level": "INFO", "service": "backend", "message": "Server started successfully"}
+{"timestamp": "2024-01-15T10:30:01", "level": "DEBUG", "service": "backend", "message": "Loading configuration from /etc/app/config.yaml"}
+{"timestamp": "2024-01-15T10:30:02", "level": "WARN", "service": "backend", "message": "Deprecated config key 'old_setting' used"}
+{"timestamp": "2024-01-15T10:30:05", "level": "ERROR", "service": "backend", "message": "Connection pool exhausted after 10 retries"}
+{"timestamp": "2024-01-15T10:30:10", "level": "INFO", "service": "market", "message": "Order book sync completed in 230ms"}
+{"timestamp": "2024-01-15T10:31:00", "level": "ERROR", "service": "backend", "message": "Database query timeout after 30s on table 'orders'"}
+{"timestamp": "2024-01-15T10:31:05", "level": "CRITICAL", "service": "frailbox", "message": "Out of memory: cannot allocate 2GB buffer"}
+{"timestamp": "2024-01-15T10:32:00", "level": "INFO", "service": "frontend", "message": "Request served in 45ms GET /api/users"}
+{"timestamp": "2024-01-15T10:33:00", "level": "DEBUG", "service": "backend", "message": "Cache hit for key 'user_profile:12345'"}
+{"timestamp": "2024-01-15T10:35:00", "level": "ERROR", "service": "market", "message": "WebSocket connection lost to upstream exchange"}

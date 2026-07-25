@@ -1,0 +1,9 @@
+This is a completely unstructured line that should not crash the parser
+空行测试
+
+{invalid json with no closing bracket
+{"timestamp": "2024-01-15T10:30:00", "level": "INFO", "service": "test", "message": "valid json after invalid"}  # this should parse
+:: empty-field line ::
+garbage!@#$%^&*()_+ Special characters that aren't any known log format
+2024-01-15 10:30:00 Line without level or service metadata
+just a regular sentence without any log structure

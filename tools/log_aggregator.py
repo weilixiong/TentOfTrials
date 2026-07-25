@@ -116,13 +116,35 @@ class LogParser:
 class JSONLogParser(LogParser):
     """Parses structured JSON log lines."""
 
+    def _normalize_timestamp(self, ts: Any) -> Optional[int]:
+        """Convert a timestamp value to a Unix epoch int, supporting various formats."""
+        if ts is None:
+            return None
+        if isinstance(ts, (int, float)):
+            return int(ts)
+        if isinstance(ts, str):
+            # ISO 8601
+            for fmt in [
+                '%Y-%m-%dT%H:%M:%S',
+                '%Y-%m-%dT%H:%M:%S.%f',
+                '%Y-%m-%d %H:%M:%S',
+                '%Y-%m-%dT%H:%M:%SZ',
+            ]:
+                try:
+                    dt = datetime.strptime(ts, fmt)
+                    return int(dt.replace(tzinfo=timezone.utc).timestamp())
+                except ValueError:
+                    continue
+        return None
+
     def parse(self, line: str) -> Optional[Dict[str, Any]]:
         try:
             entry = json.loads(line.strip())
             if not isinstance(entry, dict):
                 return None
+            raw_ts = entry.get('timestamp') or entry.get('time') or entry.get('@timestamp')
             return {
-                'timestamp': entry.get('timestamp') or entry.get('time') or entry.get('@timestamp'),
+                'timestamp': self._normalize_timestamp(raw_ts),
                 'level': entry.get('level') or entry.get('severity') or entry.get('lvl', 'info'),
                 'service': entry.get('service') or entry.get('logger') or entry.get('app'),
                 'message': entry.get('message') or entry.get('msg') or entry.get('event', ''),

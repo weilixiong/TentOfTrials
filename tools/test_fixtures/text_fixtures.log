@@ -1,0 +1,10 @@
+2024-01-15 10:30:00 [backend] INFO  Server started successfully
+2024-01-15 10:30:01 [backend] DEBUG Loading configuration from /etc/app/config.yaml
+2024-01-15 10:30:02 [backend] WARN  Deprecated config key 'old_setting' used
+2024-01-15 10:30:05 [backend] ERROR Connection pool exhausted after 10 retries
+2024-01-15 10:30:10 [market] INFO  Order book sync completed in 230ms
+2024-01-15 10:31:00 [backend] ERROR Database query timeout after 30s on table 'orders'
+2024-01-15 10:31:05 [frailbox] CRITICAL Out of memory: cannot allocate 2GB buffer
+2024-01-15 10:32:00 [frontend] INFO  Request served in 45ms GET /api/users
+2024-01-15 10:33:00 [backend] DEBUG Cache hit for key 'user_profile:12345'
+2024-01-15 10:35:00 [market] ERROR WebSocket connection lost to upstream exchange
