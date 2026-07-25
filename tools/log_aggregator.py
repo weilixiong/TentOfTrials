@@ -104,12 +104,12 @@ class LogParser:
         return 'unknown'
 
     def extract_service(self, line: str) -> Optional[str]:
-        match = re.search(r'\[(\w+)\]', line)
+        match = re.search(r'\[([\w-]+)\]', line)
         if match:
             return match.group(1)
-        match = re.search(r'(\w+)\s*:', line)
-        if match and match.group(1).isupper():
-            return match.group(1)
+        for m in re.finditer(r'([\w-]+)\s*:', line):
+            if m.group(1).isupper():
+                return m.group(1)
         return None
 
 
@@ -187,7 +187,7 @@ class NginxLogParser(LogParser):
             'message': match.group(5),
             'fields': {
                 'remote_addr': match.group(1),
-                'remote_user': match.group(2),
+                'remote_user': match.group(3),
                 'request': match.group(5),
                 'status': status_code,
                 'body_bytes': match.group(7),

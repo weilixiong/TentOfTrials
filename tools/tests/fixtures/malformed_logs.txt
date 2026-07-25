@@ -1,0 +1,5 @@
+this is just a random string with no log structure at all
+{bad json: no closing brace
+---SYSTEM BOOT--- kernel loaded ok
+[2024/03/15 10:30:00] [info] [module] message with mixed brackets
+just whitespace and newlines

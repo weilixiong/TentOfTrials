@@ -292,15 +292,18 @@ def build_module(
     if module.name == "engine":
 
         build_type = "Release" if release else "Debug"
-        cfg_result = subprocess.run(
-            ["cmake", "-S", ".", "-B", "build",
-             f"-DCMAKE_BUILD_TYPE={build_type}"],
-            cwd=str(module.dir),
-            capture_output=True,
-            text=True,
-            timeout=120,
-            env=env,
-        )
+        try:
+            cfg_result = subprocess.run(
+                ["cmake", "-S", ".", "-B", "build",
+                 f"-DCMAKE_BUILD_TYPE={build_type}"],
+                cwd=str(module.dir),
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=env,
+            )
+        except FileNotFoundError as e:
+            return False, time.time() - start, f"Command not found: {e}"
         if cfg_result.returncode != 0:
             return False, time.time() - start, (
                 f"CMake configure failed:\n{cfg_result.stderr}")
@@ -659,7 +662,8 @@ Diagnostic bundle:
         print(f"\n  {color('⚠ Some tools missing  -  will try anyway:', Colors.YELLOW)}")
         for m in missing:
             print(f"    {m}")
-        print(f"  {color('Not all modules will build. That\'s fine.', Colors.GRAY)}")
+        msg = "Not all modules will build. That's fine."
+        print(f"  {color(msg, Colors.GRAY)}")
     else:
         print(f"  {color('✓ All prerequisites found', Colors.GREEN)}")
 

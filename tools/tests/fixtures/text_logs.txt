@@ -1,0 +1,10 @@
+2024-03-15 10:30:00 INFO [auth-service] User login successful for user_id=usr-1234
+2024-03-15 10:30:01 ERROR [database-proxy] Connection timeout after 30s connecting to db-primary-01
+2024-03-15 10:30:02 WARNING [payment-gateway] Rate limit approaching: 850/1000 requests per minute
+2024-03-15 10:30:03 DEBUG [data-pipeline] Processing batch batch-42 of 1500 records
+2024-03-15 10:30:04 INFO [order-service] Order #ORD-9876 shipped via FedEx tracking=FX123456789
+2024-03-15T10:30:05 INFO [inventory-manager] Restocked SKU=WIDGET-001 qty=500
+Mar 15 10:30:06 web-server-01 CRITICAL [monitoring] Disk usage critical: 98% on /var/log
+2024-03-15 10:30:07 NOTICE [auth-service] Password reset request for user_id=usr-5678
+2024-03-15 10:30:08 ERROR [notification-hub] SMS delivery failed: carrier timeout
+2024-03-15 10:30:09 INFO PAYMENT-SERVICE: Transaction tx-abc-123 completed successfully
