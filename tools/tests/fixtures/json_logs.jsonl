@@ -1,0 +1,7 @@
+{"timestamp":"2024-03-15T10:30:00Z","level":"INFO","service":"payment-gateway","message":"Transaction processed successfully","amount":125.50,"currency":"USD"}
+{"time":"2024-03-15T10:30:01.123Z","level":"ERROR","service":"auth-service","msg":"Invalid token received","user_id":"usr-9876","ip":"192.168.1.100"}
+{"@timestamp":"2024-03-15T10:30:02.456+00:00","severity":"WARN","app":"inventory-manager","event":"Low stock alert","sku":"WIDGET-001","quantity":3}
+{"timestamp":"2024-03-15T10:30:03Z","level":"DEBUG","logger":"data-pipeline","message":"Batch job started","batch_id":"batch-42","records":1500}
+{"timestamp":"2024-03-15T10:30:04Z","level":"CRITICAL","service":"database-proxy","message":"Connection pool exhausted","active":50,"max":50}
+{"timestamp":"2024-03-15T10:30:05Z","lvl":"info","service":"order-service","message":"Order #12345 confirmed","customer":"CUST-789"}
+{"timestamp":"2024-03-15T10:30:06Z","level":"ERROR","service":"notification-hub","msg":"Email delivery failed","recipient":"user@example.com","retry_count":3}
