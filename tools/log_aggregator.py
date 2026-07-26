@@ -121,16 +121,45 @@ class JSONLogParser(LogParser):
             entry = json.loads(line.strip())
             if not isinstance(entry, dict):
                 return None
+
+            raw_ts = entry.get('timestamp') or entry.get('time') or entry.get('@timestamp')
+            timestamp = None
+            if raw_ts is not None:
+                if isinstance(raw_ts, (int, float)):
+                    timestamp = int(raw_ts)
+                elif isinstance(raw_ts, str):
+                    timestamp = self._parse_ts_str(raw_ts)
+
             return {
-                'timestamp': entry.get('timestamp') or entry.get('time') or entry.get('@timestamp'),
-                'level': entry.get('level') or entry.get('severity') or entry.get('lvl', 'info'),
+                'timestamp': timestamp,
+                'level': str(entry.get('level') or entry.get('severity') or entry.get('lvl') or 'info'),
                 'service': entry.get('service') or entry.get('logger') or entry.get('app'),
-                'message': entry.get('message') or entry.get('msg') or entry.get('event', ''),
+                'message': str(entry.get('message') or entry.get('msg') or entry.get('event') or ''),
                 'fields': entry,
                 'format': 'json',
             }
         except json.JSONDecodeError:
             return None
+
+    def _parse_ts_str(self, ts_str: str) -> Optional[int]:
+        try:
+            return int(float(ts_str))
+        except ValueError:
+            pass
+        clean_str = ts_str.split('+')[0].rstrip('Z')
+        for fmt in [
+            '%Y-%m-%dT%H:%M:%S',
+            '%Y-%m-%dT%H:%M:%S.%f',
+            '%Y-%m-%d %H:%M:%S',
+            '%d/%b/%Y:%H:%M:%S',
+            '%b %d %H:%M:%S',
+        ]:
+            try:
+                dt = datetime.strptime(clean_str, fmt)
+                return int(dt.replace(tzinfo=timezone.utc).timestamp())
+            except ValueError:
+                continue
+        return self.extract_timestamp(ts_str)
 
 
 class TextLogParser(LogParser):
@@ -149,6 +178,15 @@ class TextLogParser(LogParser):
             'fields': {'raw': line},
             'format': 'text',
         }
+
+    def extract_service(self, line: str) -> Optional[str]:
+        match = re.search(r'\[([\w\.\-]+)\]', line)
+        if match:
+            return match.group(1)
+        match = re.search(r'\b([A-Za-z][A-Za-z0-9_\-]+)\s*:', line)
+        if match and match.group(1).isupper():
+            return match.group(1)
+        return None
 
 
 class NginxLogParser(LogParser):
@@ -187,7 +225,7 @@ class NginxLogParser(LogParser):
             'message': match.group(5),
             'fields': {
                 'remote_addr': match.group(1),
-                'remote_user': match.group(2),
+                'remote_user': match.group(3),
                 'request': match.group(5),
                 'status': status_code,
                 'body_bytes': match.group(7),
@@ -204,7 +242,7 @@ class NginxLogParser(LogParser):
 
 class LogAggregator:
     def __init__(self):
-        self.parsers = [JSONLogParser(), TextLogParser(), NginxLogParser()]
+        self.parsers = [JSONLogParser(), NginxLogParser(), TextLogParser()]
         self.entries: List[Dict[str, Any]] = []
         self.level_counts: Counter = Counter()
         self.service_counts: Counter = Counter()
@@ -247,8 +285,12 @@ class LogAggregator:
                 self.entries.append(entry)
                 ts = entry.get('timestamp')
                 if ts:
-                    hour = datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%dT%H:00')
-                    self.hourly_counts[hour] += 1
+                    try:
+                        if isinstance(ts, (int, float)):
+                            hour = datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%dT%H:00')
+                            self.hourly_counts[hour] += 1
+                    except Exception:
+                        pass
                 level = entry.get('level', 'unknown').lower()
                 self.level_counts[level] += 1
                 service = entry.get('service', 'unknown')

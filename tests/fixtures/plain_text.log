@@ -1,0 +1,4 @@
+2024-01-15T10:30:45 [auth-service] ERROR Failed login attempt for user admin
+2024-01-15 11:00:00 WARN PAYMENT: Retry attempt 3 failed
+Jan 15 12:15:30 host1 USER_SVC: INFO User registered successfully
+2024-01-15T13:00:00 [cache-service] DEBUG Cache miss for key user:100

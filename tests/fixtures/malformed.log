@@ -1,0 +1,6 @@
+{"timestamp": "2024-01-15T10:00:00", "level": "ERROR", "message": "Truncated json
+NOT_A_LOG_LINE_JUST_RANDOM_TEXT
+99999-99-99 99:99:99 INVALID_DATE_LOG_FORMAT
+
+[broken bracket without service
+\x00\x01\x02\x03\x04
