@@ -1,0 +1,4 @@
+[2023-03-01 12:00:00] [INFO] [test] Starting text log test
+[2023-03-01 12:00:01] [ERROR] [test] Error occurred in text log test
+[2023-03-01 12:00:02] [WARN] [test] Warning in text log test
+[2023-03-01 12:00:03] [DEBUG] [test] Debug message in text log test
