@@ -151,20 +151,43 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 def check_memory_usage() -> Tuple[str, str, float]:
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
+        import platform as _plt
+        # Try Linux /proc/meminfo first
+        try:
+            with open("/proc/meminfo") as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip().replace(" kB", "")
+                        try:
+                            meminfo[key] = int(value) * 1024
+                        except ValueError:
+                            pass
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
+            total = meminfo.get("MemTotal", 0)
+            available = meminfo.get("MemAvailable", 0)
+        except FileNotFoundError:
+            # Cross-platform fallback (macOS, BSD)
+            if _plt.system() == "Darwin":
+                import subprocess
+                total = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"]).strip())
+                # vm_stat for available memory
+                vm = subprocess.check_output(["vm_stat"]).decode()
+                import re
+                free_pages = 0
+                for line in vm.split("\n"):
+                    m = re.search(r"Pages free:\s+(\d+)", line)
+                    if m:
+                        free_pages = int(m.group(1))
+                        break
+                page_size = int(subprocess.check_output(["sysctl", "-n", "hw.pagesize"]).strip())
+                available = free_pages * page_size
+            else:
+                # Generic fallback via os.sysconf
+                total = os.sysconf(os.sysconf_names["SC_PHYS_PAGES"]) * os.sysconf(os.sysconf_names["SC_PAGE_SIZE"])
+                available = total  # conservative
         used = total - available
         pct = (used / total) * 100 if total > 0 else 0
 
@@ -180,9 +203,14 @@ def check_memory_usage() -> Tuple[str, str, float]:
 
 def check_load_average() -> Tuple[str, str, float]:
     try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
+        # Cross-platform: os.getloadavg() works on Linux, macOS, BSD
+        try:
+            load = os.getloadavg()[0]
+        except (AttributeError, OSError):
+            # Fallback to /proc/loadavg (Linux)
+            with open("/proc/loadavg") as f:
+                parts = f.read().strip().split()
+                load = float(parts[0])
             cpu_count = os.cpu_count() or 1
             load_pct = (load / cpu_count) * 100
 

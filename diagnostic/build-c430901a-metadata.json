@@ -1,0 +1,75 @@
+{
+  "generated_at": "2026-07-24T07:58:45.379084+00:00",
+  "commit": "c430901a",
+  "diagnostic_logd": "diagnostic/build-c430901a.logd",
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": "05546f3790e7bf616eb3",
+  "decrypt_command": "encryptly unpack diagnostic/build-c430901a.logd <outdir> --password 05546f3790e7bf616eb3",
+  "total_modules": 10,
+  "passed": 4,
+  "failed": 6,
+  "modules": [
+    {
+      "name": "backend",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "frontend",
+      "status": "PASS",
+      "elapsed_seconds": 10.234,
+      "artifact": "/home/ubuntu/TentOfTrials/frontend/dist"
+    },
+    {
+      "name": "market",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "frailbox",
+      "status": "PASS",
+      "elapsed_seconds": 0.003,
+      "artifact": "/home/ubuntu/TentOfTrials/frailbox/frailbox"
+    },
+    {
+      "name": "engine",
+      "status": "PASS",
+      "elapsed_seconds": 0.122,
+      "artifact": "/home/ubuntu/TentOfTrials/frailbox/engine/build/trial-engine"
+    },
+    {
+      "name": "compliance",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "v2-market-stream",
+      "status": "PASS",
+      "elapsed_seconds": 0.009,
+      "artifact": null
+    },
+    {
+      "name": "nfc-scanner",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "openapi-haskell",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "openapi-tools",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    }
+  ],
+  "pr_note": "Include this metadata and diagnostic/build-c430901a.logd in your PR. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
