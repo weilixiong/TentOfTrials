@@ -1,0 +1,5 @@
+{"timestamp": 1680000000, "level": "info", "service": "test", "message": "Test JSON log entry"}
+[2023-03-01 12:00:00] [INFO] [test] Starting text log test
+127.0.0.1 - - [01/Mar/2023:12:00:00 +0000] "GET /index.html HTTP/1.1" 200 1024 "-" "Mozilla/5.0"
+this is not a valid log line
+{"timestamp": 1680000001, "level": "error", "service": "test", "message": "Another JSON log entry"}

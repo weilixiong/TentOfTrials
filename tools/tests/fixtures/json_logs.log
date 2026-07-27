@@ -1,0 +1,4 @@
+{"timestamp": 1680000000, "level": "info", "service": "test", "message": "Test JSON log entry 1"}
+{"timestamp": 1680000001, "level": "error", "service": "test", "message": "Test JSON log entry 2"}
+{"timestamp": 1680000002, "level": "warn", "service": "test", "message": "Test JSON log entry 3"}
+{"timestamp": 1680000003, "level": "debug", "service": "test", "message": "Test JSON log entry 4"}
