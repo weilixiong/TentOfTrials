@@ -1,0 +1,48 @@
+============================================================
+  Independent Parser Fixture Validation
+  (hand-written fixtures, NOT parser-generated)
+============================================================
+
+--- JSONLogParser (9 fixtures) ---
+  OK   [JSONLogParser] #0: standard JSON log entry with timestamp, level, service, message
+  OK   [JSONLogParser] #1: JSON with 'time'/'severity'/'logger'/'msg' field aliases
+  OK   [JSONLogParser] #2: JSON with '@timestamp'/'lvl'/'app'/'event' field aliases
+  OK   [JSONLogParser] #3: JSON with minimal fields — level defaults to 'info'
+  OK   [JSONLogParser] #4: JSON with no service field — should be None
+  OK   [JSONLogParser] #5: correctly returns None — empty string — parser should return None gracefully
+  OK   [JSONLogParser] #6: correctly returns None — non-JSON text — parser should return None gracefully
+  OK   [JSONLogParser] #7: correctly returns None — JSON array instead of object — parser should return None
+  OK   [JSONLogParser] #8: correctly returns None — truncated/invalid JSON — parser should return None gracefully
+  Result: 9/9 passed
+
+--- TextLogParser (12 fixtures) ---
+  OK   [TextLogParser] #0: standard text log: timestamp, service bracket, ERROR level, message
+  OK   [TextLogParser] #1: ISO timestamp, WARNING level, no service tag
+  OK   [TextLogParser] #2: standard timestamp, INFO level
+  OK   [TextLogParser] #3: syslog-style timestamp, service bracket at start, DEBUG level
+  OK   [TextLogParser] #4: ERROR at start, service in brackets
+  OK   [TextLogParser] #5: FATAL level — should map to 'error'
+  OK   [TextLogParser] #6: CRITICAL level — should map to 'error'
+  OK   [TextLogParser] #7: NOTICE level — should map to 'info'
+  OK   [TextLogParser] #8: TRACE level — should map to 'debug'
+  OK   [TextLogParser] #9: correctly returns None — empty string — parser should return None gracefully
+  OK   [TextLogParser] #10: plain text — should parse with 'unknown' level (no crash)
+  OK   [TextLogParser] #11: correctly returns None — whitespace-only — parser should return None gracefully
+  Result: 12/12 passed
+
+--- NginxLogParser (9 fixtures) ---
+  OK   [NginxLogParser] #0: standard nginx access log — 200 OK → info level
+  OK   [NginxLogParser] #1: nginx 401 — should map to 'warn' level
+  OK   [NginxLogParser] #2: nginx 403 — should map to 'warn' level
+  OK   [NginxLogParser] #3: nginx 500 — should map to 'error' level
+  OK   [NginxLogParser] #4: nginx 502 — should map to 'error' level
+  OK   [NginxLogParser] #5: nginx 204 with authenticated user and referer
+  OK   [NginxLogParser] #6: correctly returns None — empty string — parser should return None gracefully
+  OK   [NginxLogParser] #7: correctly returns None — non-nginx text — parser should return None gracefully
+  OK   [NginxLogParser] #8: correctly returns None — malformed nginx line — parser should return None gracefully
+  Result: 9/9 passed
+
+============================================================
+  TOTAL: 30/30 passed
+  ✓ All fixtures passed
+
