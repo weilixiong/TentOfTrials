@@ -103,13 +103,35 @@ class LogParser:
                 return level
         return 'unknown'
 
+    # Standard log levels that should NOT be matched as service names
+    _LOG_LEVEL_KEYWORDS = frozenset({
+        'ERROR', 'WARN', 'WARNING', 'INFO', 'NOTICE',
+        'DEBUG', 'TRACE', 'FATAL', 'CRITICAL',
+    })
+
     def extract_service(self, line: str) -> Optional[str]:
+        """Extract a service name from a log line.
+
+        Looks for [ServiceName] bracket notation first, then for
+        UPPERCASE_WORD: prefix (excluding known log level keywords
+        and ISO-8601 timestamp fragments).
+        """
+        # Bracket notation: [auth], [database], [api], etc.
         match = re.search(r'\[(\w+)\]', line)
         if match:
             return match.group(1)
+
+        # UPPERCASE_WORD: prefix — but skip log level keywords and
+        # timestamp-like fragments (captured from ISO-8601 dates)
         match = re.search(r'(\w+)\s*:', line)
-        if match and match.group(1).isupper():
-            return match.group(1)
+        if match:
+            word = match.group(1)
+            if word.isupper() and word not in self._LOG_LEVEL_KEYWORDS:
+                # Exclude fragments of ISO-8601 timestamps (e.g. 'T09'
+                # captured from '2024-03-15T09:00:00')
+                if re.match(r'^[\dT-]+$', word):
+                    return None
+                return word
         return None
 
 
