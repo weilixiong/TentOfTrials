@@ -1,0 +1,32 @@
+[
+  {
+    "id": "malformed_truncated_json",
+    "description": "Truncated JSON — should not crash, should return None from JSONLogParser",
+    "input": "{\"timestamp\":\"2024-06-15T08:30:45Z\",\"level\":\"INFO\",\"message\":\"This JSON is truncated"
+  },
+  {
+    "id": "malformed_empty_line",
+    "description": "Empty line — all parsers should return None or skip",
+    "input": ""
+  },
+  {
+    "id": "malformed_whitespace_only",
+    "description": "Whitespace-only line — should be skipped",
+    "input": "   \t   "
+  },
+  {
+    "id": "malformed_binary_garbage",
+    "description": "Binary-like garbage — should not crash any parser",
+    "input": "\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\u0008"
+  },
+  {
+    "id": "malformed_json_array",
+    "description": "Valid JSON but not an object — JSONLogParser should return None",
+    "input": "[1, 2, 3, 4]"
+  },
+  {
+    "id": "malformed_partial_nginx",
+    "description": "Looks like nginx but missing fields — NginxLogParser should return None",
+    "input": "192.168.1.1 - - [15/Jun/2024:08:30:45 +0000] \"GET /api"
+  }
+]

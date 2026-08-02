@@ -1,0 +1,57 @@
+[
+  {
+    "id": "text_iso8601_error",
+    "description": "Plain text log with ISO-8601 timestamp and ERROR level",
+    "input": "2024-06-15T14:23:01 ERROR [database] Connection pool exhausted after 30s timeout",
+    "expected": {
+      "timestamp_not_null": true,
+      "level": "error",
+      "service": "database",
+      "format": "text"
+    }
+  },
+  {
+    "id": "text_standard_warn",
+    "description": "Plain text log with standard datetime and WARNING level",
+    "input": "2024-06-15 16:45:30 WARNING [scheduler] Job 'cleanup_temp' missed its scheduled run by 5 minutes",
+    "expected": {
+      "timestamp_not_null": true,
+      "level": "warn",
+      "service": "scheduler",
+      "format": "text"
+    }
+  },
+  {
+    "id": "text_info_with_service_bracket",
+    "description": "Plain text with INFO level and bracketed service name",
+    "input": "2024-06-15T09:00:00 INFO [healthcheck] all 12 endpoints responding within 200ms",
+    "expected": {
+      "timestamp_not_null": true,
+      "level": "info",
+      "service": "healthcheck",
+      "format": "text"
+    }
+  },
+  {
+    "id": "text_debug_level",
+    "description": "Plain text with DEBUG level",
+    "input": "2024-06-15 03:00:00 DEBUG [cache] LRU eviction triggered: 1024 keys removed, 128MB freed",
+    "expected": {
+      "timestamp_not_null": true,
+      "level": "debug",
+      "service": "cache",
+      "format": "text"
+    }
+  },
+  {
+    "id": "text_no_level",
+    "description": "Plain text with timestamp but no recognizable level keyword",
+    "input": "2024-06-15T22:10:00 [worker] Processing batch 47 of 100 (47% complete)",
+    "expected": {
+      "timestamp_not_null": true,
+      "level": "unknown",
+      "service": "worker",
+      "format": "text"
+    }
+  }
+]
