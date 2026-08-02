@@ -1,0 +1,32 @@
+name: Parser Tests
+
+on:
+  push:
+    paths:
+      - 'tools/log_aggregator.py'
+      - 'tools/test_log_parser.py'
+      - 'tools/test_fixtures/**'
+  pull_request:
+    paths:
+      - 'tools/log_aggregator.py'
+      - 'tools/test_log_parser.py'
+      - 'tools/test_fixtures/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run parser fixture tests
+        run: python3 tools/test_log_parser.py
+      - name: Run build diagnostics
+        run: python3 build.py
+      - name: Archive diagnostic artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-diagnostics
+          path: diagnostic/
