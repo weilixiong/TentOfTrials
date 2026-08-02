@@ -1,0 +1,50 @@
+[
+  {
+    "id": "json_basic_info",
+    "description": "Standard JSON log entry with common field names",
+    "input": "{\"timestamp\":\"2024-06-15T08:30:45Z\",\"level\":\"INFO\",\"service\":\"auth-service\",\"message\":\"User login successful\",\"user_id\":\"u-12345\"}",
+    "expected": {
+      "timestamp": "2024-06-15T08:30:45Z",
+      "level": "info",
+      "service": "auth-service",
+      "message": "User login successful",
+      "format": "json"
+    }
+  },
+  {
+    "id": "json_error_severity",
+    "description": "JSON log using 'severity' instead of 'level' and '@timestamp'",
+    "input": "{\"@timestamp\":\"2024-06-15T09:12:00Z\",\"severity\":\"ERROR\",\"logger\":\"payment-gateway\",\"msg\":\"Transaction declined: insufficient funds\",\"tx_id\":\"tx-99887\"}",
+    "expected": {
+      "timestamp": "2024-06-15T09:12:00Z",
+      "level": "ERROR",
+      "service": "payment-gateway",
+      "message": "Transaction declined: insufficient funds",
+      "format": "json"
+    }
+  },
+  {
+    "id": "json_minimal_fields",
+    "description": "JSON log with only 'time' and 'event' fields (minimal)",
+    "input": "{\"time\":\"2024-06-15T10:00:00Z\",\"event\":\"cache_eviction\",\"keys_removed\":42}",
+    "expected": {
+      "timestamp": "2024-06-15T10:00:00Z",
+      "level": "info",
+      "service": null,
+      "message": "cache_eviction",
+      "format": "json"
+    }
+  },
+  {
+    "id": "json_nested_no_crash",
+    "description": "JSON with deeply nested structure should still parse top-level fields",
+    "input": "{\"timestamp\":\"2024-06-15T11:00:00Z\",\"level\":\"WARN\",\"service\":\"api-gateway\",\"message\":\"Rate limit approaching\",\"meta\":{\"client\":{\"ip\":\"10.0.0.1\"},\"quota\":{\"used\":950,\"limit\":1000}}}",
+    "expected": {
+      "timestamp": "2024-06-15T11:00:00Z",
+      "level": "WARN",
+      "service": "api-gateway",
+      "message": "Rate limit approaching",
+      "format": "json"
+    }
+  }
+]

@@ -1,0 +1,54 @@
+[
+  {
+    "id": "nginx_200_get",
+    "description": "Standard nginx access log — successful GET",
+    "input": "192.168.1.100 - admin [15/Jun/2024:08:30:45 +0000] \"GET /api/v2/health HTTP/1.1\" 200 512 \"https://app.example.com/dashboard\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64)\"",
+    "expected": {
+      "timestamp_not_null": true,
+      "level": "info",
+      "service": "nginx",
+      "status": 200,
+      "remote_addr": "192.168.1.100",
+      "format": "nginx"
+    }
+  },
+  {
+    "id": "nginx_404_warn",
+    "description": "Nginx 404 — should be classified as 'warn'",
+    "input": "10.0.0.5 - - [15/Jun/2024:09:15:22 +0000] \"GET /api/v1/users/nonexistent HTTP/1.1\" 404 128 \"-\" \"curl/8.5.0\"",
+    "expected": {
+      "timestamp_not_null": true,
+      "level": "warn",
+      "service": "nginx",
+      "status": 404,
+      "remote_addr": "10.0.0.5",
+      "format": "nginx"
+    }
+  },
+  {
+    "id": "nginx_500_error",
+    "description": "Nginx 500 — should be classified as 'error'",
+    "input": "172.16.0.1 - - [15/Jun/2024:10:00:00 +0000] \"POST /api/v2/payments HTTP/1.1\" 500 256 \"https://checkout.example.com\" \"PaymentSDK/3.1\"",
+    "expected": {
+      "timestamp_not_null": true,
+      "level": "error",
+      "service": "nginx",
+      "status": 500,
+      "remote_addr": "172.16.0.1",
+      "format": "nginx"
+    }
+  },
+  {
+    "id": "nginx_301_redirect",
+    "description": "Nginx 301 redirect — should be 'info'",
+    "input": "203.0.113.50 - - [15/Jun/2024:12:30:00 +0000] \"GET /old-page HTTP/1.1\" 301 0 \"-\" \"Googlebot/2.1\"",
+    "expected": {
+      "timestamp_not_null": true,
+      "level": "info",
+      "service": "nginx",
+      "status": 301,
+      "remote_addr": "203.0.113.50",
+      "format": "nginx"
+    }
+  }
+]
