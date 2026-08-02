@@ -1,0 +1,18 @@
+# Independent hand-written Nginx access log fixture lines
+# These are NOT parser-generated - crafted from RFC 2616 and Nginx documentation
+# Format: $remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"
+
+192.168.1.100 - - [15/Jan/2024:08:30:00 +0000] "GET /api/v1/orders HTTP/1.1" 200 1234 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+10.0.0.5 - admin [15/Jan/2024:08:30:01 +0000] "POST /api/v1/orders HTTP/1.1" 201 567 "https://app.tentoftrials.com/dashboard" "curl/8.1.2"
+172.16.0.23 - - [15/Jan/2024:08:30:02 +0000] "GET /api/v1/products?category=options HTTP/1.1" 200 8901 "-" "python-requests/2.31.0"
+192.168.1.50 - - [15/Jan/2024:08:30:03 +0000] "PUT /api/v1/users/12345 HTTP/1.1" 403 156 "-" "PostmanRuntime/7.32.0"
+10.0.0.10 - - [15/Jan/2024:08:30:04 +0000] "DELETE /api/v1/sessions/abc-def-ghi HTTP/1.1" 204 0 "https://admin.tentoftrials.com/users" "Mozilla/5.0"
+172.16.0.99 - - [15/Jan/2024:08:30:05 +0000] "GET /health HTTP/1.1" 500 234 "-" "ELB-HealthChecker/2.0"
+192.168.1.200 - - [15/Jan/2024:08:30:06 +0000] "GET /nonexistent HTTP/1.1" 404 512 "-" "Googlebot/2.1"
+10.0.0.77 - - [15/Jan/2024:08:30:07 +0000] "POST /api/v1/upload HTTP/1.1" 413 89 "https://app.tentoftrials.com/upload" "Mozilla/5.0"
+172.16.0.50 - - [15/Jan/2024:08:30:08 +0000] "GET /api/v1/reports?from=2024-01-01&to=2024-01-15 HTTP/1.1" 200 45678 "-" "axios/1.6.0"
+192.168.1.10 - - [15/Jan/2024:08:30:09 +0000] "PATCH /api/v1/config HTTP/1.1" 405 178 "-" "curl/8.1.2"
+10.0.0.200 - - [15/Jan/2024:09:00:00 +0000] "GET /static/css/main.9f3a2b1c.css HTTP/1.1" 304 0 "https://app.tentoftrials.com/" "Mozilla/5.0"
+172.16.0.33 - - [15/Jan/2024:10:00:00 +0000] "GET /api/v1/metrics HTTP/1.1" 401 89 "-" "Prometheus/2.45.0"
+192.168.1.88 - user123 [15/Jan/2024:11:45:00 +0000] "GET /api/v1/admin/users HTTP/1.1" 200 3456 "-" "Mozilla/5.0"
+10.0.0.42 - - [15/Jan/2024:12:00:00 +0000] "POST /graphql HTTP/1.1" 502 345 "-" "Apollo-Client/3.8.0"
