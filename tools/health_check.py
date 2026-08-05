@@ -33,6 +33,7 @@ Usage:
 import argparse
 import json
 import os
+import shutil
 import socket
 import ssl
 import subprocess
@@ -132,6 +133,34 @@ def check_certificate_expiry(host: str, port: int = 443) -> Tuple[str, str, int]
 
 
 def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
+    """Check disk usage with cross-platform fallbacks.
+
+    Strategy:
+      1. shutil.disk_usage() -- Python >= 3.3, all platforms
+      2. os.statvfs()         -- Unix-only fallback
+      3. WARNING              -- graceful degradation
+    """
+    # Method 1: shutil.disk_usage (cross-platform, preferred)
+    try:
+        usage = shutil.disk_usage(path)
+        total = usage.total
+        free = usage.free
+        used = usage.used
+        pct = (used / total) * 100 if total > 0 else 0
+
+        if pct < DISK_THRESHOLD_WARNING:
+            status = "OK"
+        elif pct < DISK_THRESHOLD_CRITICAL:
+            status = "WARNING"
+        else:
+            status = "CRITICAL"
+
+        detail = f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)"
+        return status, detail, pct
+    except Exception:
+        pass
+
+    # Method 2: os.statvfs (Unix fallback)
     try:
         stat = os.statvfs(path)
         total = stat.f_frsize * stat.f_blocks
@@ -140,60 +169,335 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
         pct = (used / total) * 100
 
         if pct < DISK_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+            status = "OK"
         elif pct < DISK_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+            status = "WARNING"
         else:
-            return "CRITICAL", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+            status = "CRITICAL"
+
+        detail = f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)"
+        return status, detail, pct
+    except Exception:
+        pass
+
+    # Method 3: unable to check
+    return "WARNING", "Cannot check disk usage: no method available on this OS", 0
 
 
 def check_memory_usage() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
+    """Check memory usage with cross-platform fallbacks.
+
+    Strategy (tried in order):
+      1. psutil.virtual_memory()        -- cross-platform, optional dependency
+      2. /proc/meminfo                  -- Linux
+      3. sysctl hw.memsize + vm_stat    -- macOS
+      4. wmic / systeminfo              -- Windows
+      5. WARNING                        -- graceful degradation
+    """
+    # Helper: try importing psutil
+    def _try_psutil():
+        try:
+            import psutil as _psutil
+            return _psutil
+        except ImportError:
+            return None
+
+    platform = sys.platform
+
+    # Method 1: psutil (works on all platforms if installed)
+    psutil_mod = _try_psutil()
+    if psutil_mod is not None:
+        try:
+            mem = psutil_mod.virtual_memory()
+            pct = mem.percent
+            total = mem.total
+            used = mem.used
+
+            if pct < MEMORY_THRESHOLD_WARNING:
+                status = "OK"
+            elif pct < MEMORY_THRESHOLD_CRITICAL:
+                status = "WARNING"
+            else:
+                status = "CRITICAL"
+
+            detail = f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)"
+            return status, detail, pct
+        except Exception:
+            pass
+
+    # Method 2a: /proc/meminfo (Linux)
+    if platform.startswith("linux"):
+        try:
+            with open("/proc/meminfo") as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip().replace(" kB", "")
+                        try:
+                            meminfo[key] = int(value) * 1024
+                        except ValueError:
+                            pass
+
+            total = meminfo.get("MemTotal", 0)
+            available = meminfo.get("MemAvailable", 0)
+            used = total - available
+            pct = (used / total) * 100 if total > 0 else 0
+
+            if pct < MEMORY_THRESHOLD_WARNING:
+                return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+            elif pct < MEMORY_THRESHOLD_CRITICAL:
+                return "WARNING", f"{pct:.1f}% used", pct
+            else:
+                return "CRITICAL", f"{pct:.1f}% used", pct
+        except Exception:
+            pass
+
+    # Method 2b: sysctl/vm_stat (macOS)
+    if platform == "darwin":
+        try:
+            result = subprocess.run(
+                ["sysctl", "-n", "hw.memsize"],
+                capture_output=True, text=True, timeout=5
+            )
+            total = int(result.stdout.strip())
+
+            result = subprocess.run(
+                ["sysctl", "-n", "hw.pagesize"],
+                capture_output=True, text=True, timeout=5
+            )
+            page_size = int(result.stdout.strip())
+
+            result = subprocess.run(
+                ["vm_stat"],
+                capture_output=True, text=True, timeout=5
+            )
+            vm = {}
+            for vline in result.stdout.strip().split(chr(10)):
+                if ":" in vline:
+                    key, val = vline.split(":", 1)
+                    val = val.strip().rstrip(".")
                     try:
-                        meminfo[key] = int(value) * 1024
+                        vm[key.strip()] = int(val)
                     except ValueError:
                         pass
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
+            free_pages = vm.get("Pages free", 0)
+            inactive_pages = vm.get("Pages inactive", 0)
+            available = (free_pages + inactive_pages) * page_size
+            used = total - available
+            pct = (used / total) * 100 if total > 0 else 0
 
-        if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-        elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
-        else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+            if pct < MEMORY_THRESHOLD_WARNING:
+                status = "OK"
+            elif pct < MEMORY_THRESHOLD_CRITICAL:
+                status = "WARNING"
+            else:
+                status = "CRITICAL"
+
+            detail = f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)"
+            return status, detail, pct
+        except Exception:
+            pass
+
+    # Method 2c: wmic / systeminfo (Windows)
+    if platform == "win32":
+        try:
+            result = subprocess.run(
+                ["wmic", "OS", "get", "TotalVisibleMemorySize,FreePhysicalMemory", "/Value"],
+                capture_output=True, text=True, timeout=10
+            )
+            mem = {}
+            for wline in result.stdout.strip().split(chr(10)):
+                wline = wline.strip()
+                if "=" in wline:
+                    key, val = wline.split("=", 1)
+                    try:
+                        mem[key.strip()] = int(val.strip()) * 1024
+                    except ValueError:
+                        pass
+
+            total = mem.get("TotalVisibleMemorySize", 0)
+            free = mem.get("FreePhysicalMemory", 0)
+            used = total - free
+            pct = (used / total) * 100 if total > 0 else 0
+
+            if pct < MEMORY_THRESHOLD_WARNING:
+                status = "OK"
+            elif pct < MEMORY_THRESHOLD_CRITICAL:
+                status = "WARNING"
+            else:
+                status = "CRITICAL"
+
+            detail = f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)"
+            return status, detail, pct
+        except Exception:
+            pass
+
+        # Fallback: systeminfo
+        try:
+            result = subprocess.run(
+                ["systeminfo"],
+                capture_output=True, text=True, timeout=15,
+            )
+            total = None
+            available = None
+            for sinfo_line in result.stdout.split(chr(10)):
+                line_lower = sinfo_line.lower()
+                if "total physical memory" in line_lower:
+                    parts = sinfo_line.replace(",", "").split()
+                    for p in parts:
+                        if p.replace(".", "").isdigit():
+                            total = int(float(p)) * 1024 * 1024
+                            break
+                if "available physical memory" in line_lower:
+                    parts = sinfo_line.replace(",", "").split()
+                    for p in parts:
+                        if p.replace(".", "").isdigit():
+                            available = int(float(p)) * 1024 * 1024
+                            break
+
+            if total and available:
+                used = total - available
+                pct = (used / total) * 100 if total > 0 else 0
+
+                if pct < MEMORY_THRESHOLD_WARNING:
+                    status = "OK"
+                elif pct < MEMORY_THRESHOLD_CRITICAL:
+                    status = "WARNING"
+                else:
+                    status = "CRITICAL"
+
+                detail = f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)"
+                return status, detail, pct
+        except Exception:
+            pass
+
+    # Method 3: graceful degradation
+    return "WARNING", "Cannot check memory: unsupported platform or no method available", 0
 
 
 def check_load_average() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+    """Check CPU load with cross-platform fallbacks.
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    Strategy (tried in order):
+      1. os.getloadavg()                -- Unix/macOS built-in
+      2. psutil.getloadavg() / cpu_percent() -- cross-platform
+      3. /proc/loadavg                  -- Linux
+      4. wmic cpu LoadPercentage        -- Windows
+      5. WARNING                        -- graceful degradation
+    """
+    def _try_psutil():
+        try:
+            import psutil as _psutil
+            return _psutil
+        except ImportError:
+            return None
+
+    platform = sys.platform
+
+    # Method 1: os.getloadavg() (Unix/macOS)
+    try:
+        load = os.getloadavg()[0]
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load / cpu_count) * 100
+
+        if load_pct < 70:
+            status = "OK"
+        elif load_pct < 90:
+            status = "WARNING"
+        else:
+            status = "CRITICAL"
+
+        detail = f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)"
+        return status, detail, load
+    except Exception:
+        pass
+
+    # Method 2: psutil (cross-platform)
+    psutil_mod = _try_psutil()
+    if psutil_mod is not None:
+        try:
+            load_avg = psutil_mod.getloadavg()
+            if load_avg:
+                load = load_avg[0]
+                cpu_count = os.cpu_count() or 1
+                load_pct = (load / cpu_count) * 100
+
+                if load_pct < 70:
+                    status = "OK"
+                elif load_pct < 90:
+                    status = "WARNING"
+                else:
+                    status = "CRITICAL"
+
+                detail = f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)"
+                return status, detail, load
+        except Exception:
+            pass
+
+        try:
+            cpu_pct = psutil_mod.cpu_percent(interval=0.5)
+            if cpu_pct < 70:
+                status = "OK"
+            elif cpu_pct < 90:
+                status = "WARNING"
             else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+                status = "CRITICAL"
+
+            detail = f"CPU usage: {cpu_pct:.1f}% (instant sample)"
+            return status, detail, cpu_pct
+        except Exception:
+            pass
+
+    # Method 3: /proc/loadavg (Linux)
+    if platform.startswith("linux"):
+        try:
+            with open("/proc/loadavg") as f:
+                parts = f.read().strip().split()
+                load = float(parts[0])
+                cpu_count = os.cpu_count() or 1
+                load_pct = (load / cpu_count) * 100
+
+                if load_pct < 70:
+                    return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                elif load_pct < 90:
+                    return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                else:
+                    return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        except Exception:
+            pass
+
+    # Method 4: wmic (Windows)
+    if platform == "win32":
+        try:
+            result = subprocess.run(
+                ["wmic", "cpu", "get", "LoadPercentage"],
+                capture_output=True, text=True, timeout=10
+            )
+            lines = result.stdout.strip().split(chr(10))
+            for wline in lines[1:]:
+                wline = wline.strip()
+                if wline and wline.isdigit():
+                    load_pct = float(wline)
+                    cpu_count = os.cpu_count() or 1
+
+                    if load_pct < 70:
+                        status = "OK"
+                    elif load_pct < 90:
+                        status = "WARNING"
+                    else:
+                        status = "CRITICAL"
+
+                    detail = f"CPU usage: {load_pct:.1f}% ({cpu_count} cores)"
+                    return status, detail, load_pct
+        except Exception:
+            pass
+
+    # Method 5: graceful degradation
+    return "WARNING", "Cannot check CPU load: unsupported platform or no method available", 0
+
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +508,7 @@ def run_health_checks(service: Optional[str] = None, json_output: bool = False) 
     results: Dict[str, Any] = {
         "timestamp": datetime.now().isoformat(),
         "hostname": socket.gethostname(),
+        "platform": sys.platform,
         "services": {},
         "infrastructure": {},
         "system": {},
@@ -277,6 +582,7 @@ def run_health_checks(service: Optional[str] = None, json_output: bool = False) 
 def print_health_report(results: Dict[str, Any]):
     print(f"\n{'='*60}")
     print(f"  HEALTH CHECK REPORT")
+    print(f"  Platform: {results.get('platform', 'unknown')}")
     print(f"  Host: {results['hostname']}")
     print(f"  Time: {results['timestamp']}")
     print(f"  Overall: {results['overall_status']}")
