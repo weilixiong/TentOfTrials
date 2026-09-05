@@ -246,7 +246,9 @@ class LogAggregator:
             if entry:
                 self.entries.append(entry)
                 ts = entry.get('timestamp')
-                if ts:
+                # Guard: JSON entries may carry ISO-8601 string timestamps;
+                # only numeric (unix epoch) values feed the hourly histogram.
+                if isinstance(ts, (int, float)):
                     hour = datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%dT%H:00')
                     self.hourly_counts[hour] += 1
                 level = entry.get('level', 'unknown').lower()
@@ -280,7 +282,9 @@ class LogAggregator:
     def _get_time_range(self) -> Optional[Dict[str, str]]:
         timestamps = [
             e['timestamp'] for e in self.entries
-            if e.get('timestamp')
+            # Only numeric (unix epoch) values — ISO strings from JSON
+            # entries cannot be min/max-compared against ints.
+            if isinstance(e.get('timestamp'), (int, float))
         ]
         if not timestamps:
             return None
