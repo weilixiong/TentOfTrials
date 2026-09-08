@@ -1,0 +1,3 @@
+{"timestamp":1788862530,"level":"ERROR","service":"payments","message":"Database connection failed","request_id":"req-7f3a","region":"ap-south-1"}
+{"time":1788862590,"severity":"WARN","logger":"api-gateway","msg":"Upstream response exceeded latency threshold","request_id":"req-91bc"}
+{"@timestamp":1788862650,"lvl":"INFO","app":"worker","event":"Job completed","job_id":"job-2048"}
