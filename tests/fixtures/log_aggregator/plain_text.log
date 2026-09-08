@@ -1,0 +1,3 @@
+2026-09-08 10:16:00 [payments] WARN: Slow response detected
+2026-09-08 10:17:00 [api-gateway] ERROR: Upstream request failed
+2026-09-08 10:18:00 [worker] INFO: Job completed successfully
