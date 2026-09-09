@@ -1,0 +1,2 @@
+2026-09-08 11:45:30,123 INFO [api] Request completed successfully
+self.assertEqual(result["service"], "api")
