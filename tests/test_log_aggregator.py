@@ -11,7 +11,7 @@ class TestJSONLogParser(unittest.TestCase):
         line = fixture_path.read_text(encoding="utf-8").strip()
         result = JSONLogParser().parse(line)
 
-        self.assertEqual(result["timestamp"], "2026-09-08T10:30:00Z")
+        self.assertEqual(result["timestamp"], 1788863400)
         self.assertEqual(result["level"], "INFO")
         self.assertEqual(result["service"], "api")
         self.assertEqual(result["format"], "json")

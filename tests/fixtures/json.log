@@ -1,1 +1,1 @@
-{"timestamp":"2026-09-08T10:30:00Z","level":"INFO","service":"api","message":"Request completed","request_id":"req-123","status":200}
+{"timestamp":1788863400,"level":"INFO","service":"api","message":"Request completed","request_id":"req-123","status":200}
