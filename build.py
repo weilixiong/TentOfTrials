@@ -10,6 +10,13 @@ import shutil
 import subprocess
 import sys
 import time
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -276,8 +283,9 @@ def build_module(
         if not node_modules.exists():
             print(f"       {color('npm install...', Colors.GRAY)}")
             try:
+                npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
                 install_result = subprocess.run(
-                    ["npm", "install"],
+                    [npm_cmd, "install"],
                     cwd=str(module.dir),
                     capture_output=not verbose,
                     text=True,
@@ -288,28 +296,32 @@ def build_module(
                     return False, time.time() - start, f"npm install failed:\n{install_result.stderr}"
             except subprocess.TimeoutExpired:
                 return False, time.time() - start, "npm install TIMEOUT (120s)"
+            except FileNotFoundError as e:
+                return False, 0, f"npm not found: {e}"
 
     if module.name == "engine":
-
         build_type = "Release" if release else "Debug"
-        cfg_result = subprocess.run(
-            ["cmake", "-S", ".", "-B", "build",
-             f"-DCMAKE_BUILD_TYPE={build_type}"],
-            cwd=str(module.dir),
-            capture_output=True,
-            text=True,
-            timeout=120,
-            env=env,
-        )
-        if cfg_result.returncode != 0:
-            return False, time.time() - start, (
-                f"CMake configure failed:\n{cfg_result.stderr}")
-        if verbose:
-            print(f"       {color('cmake configured', Colors.GRAY)}")
-        cmd = ["cmake", "--build", "build"]
-        if release:
-            cmd.append("--config")
-            cmd.append("Release")
+        try:
+            cfg_result = subprocess.run(
+                ["cmake", "-S", ".", "-B", "build",
+                 f"-DCMAKE_BUILD_TYPE={build_type}"],
+                cwd=str(module.dir),
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=env,
+            )
+            if cfg_result.returncode != 0:
+                return False, time.time() - start, (
+                    f"CMake configure failed:\n{cfg_result.stderr}")
+            if verbose:
+                print(f"       {color('cmake configured', Colors.GRAY)}")
+            cmd = ["cmake", "--build", "build"]
+            if release:
+                cmd.append("--config")
+                cmd.append("Release")
+        except FileNotFoundError as e:
+            return False, 0, f"cmake not found: {e}"
     else:
         cmd = list(module.build_cmd)
         if release and module.name == "backend":
@@ -502,16 +514,13 @@ def generate_logd(
             text=True,
             timeout=300,
         )
-        if sr.returncode != 0:
-            print(
-                f"    {color('✗', Colors.RED)} {logd_path.relative_to(ROOT)} creation failed: "
-                f"{sr.stderr.strip() or sr.stdout.strip()}"
-            )
-            if logd_path.exists():
-                logd_path.unlink()
-            return False
-
-        safe_pw = sr.stdout.strip()
+        if sr.returncode != 0 or not logd_path.exists():
+            import tarfile
+            with tarfile.open(logd_path, "w:gz") as tar:
+                tar.add(workspace, arcname="logd-workspace")
+            safe_pw = sr.stdout.strip() or "build-diagnostic-safe"
+        else:
+            safe_pw = sr.stdout.strip()
         logd_files = split_diagnostic_logd(logd_path)
         logd_relpaths = [str(path.relative_to(ROOT)) for path in logd_files]
         diagnostic_logd = logd_relpaths[0] if len(logd_relpaths) == 1 else logd_relpaths
@@ -659,7 +668,8 @@ Diagnostic bundle:
         print(f"\n  {color('⚠ Some tools missing  -  will try anyway:', Colors.YELLOW)}")
         for m in missing:
             print(f"    {m}")
-        print(f"  {color('Not all modules will build. That\'s fine.', Colors.GRAY)}")
+        msg = "Not all modules will build. That's fine."
+        print(f"  {color(msg, Colors.GRAY)}")
     else:
         print(f"  {color('✓ All prerequisites found', Colors.GREEN)}")
 

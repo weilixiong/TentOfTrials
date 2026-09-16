@@ -151,49 +151,145 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 def check_memory_usage() -> Tuple[str, str, float]:
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
+        total = 0
+        available = 0
+        used = 0
+        pct = 0.0
+
+        if os.path.exists("/proc/meminfo"):
+            with open("/proc/meminfo") as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip().replace(" kB", "")
+                        try:
+                            meminfo[key] = int(value) * 1024
+                        except ValueError:
+                            pass
+
+            total = meminfo.get("MemTotal", 0)
+            available = meminfo.get("MemAvailable", 0)
+            used = total - available
+            pct = (used / total) * 100 if total > 0 else 0.0
+        else:
+            # Cross-platform non-Linux fallback paths
+            try:
+                import psutil
+                vm = psutil.virtual_memory()
+                total = int(vm.total)
+                used = int(vm.used)
+                pct = float(vm.percent)
+            except ImportError:
+                if sys.platform == "win32":
                     try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
+                        import ctypes
+                        class MEMORYSTATUSEX(ctypes.Structure):
+                            _fields_ = [
+                                ("dwLength", ctypes.c_ulong),
+                                ("dwMemoryLoad", ctypes.c_ulong),
+                                ("ullTotalPhys", ctypes.c_ulonglong),
+                                ("ullAvailPhys", ctypes.c_ulonglong),
+                                ("ullTotalPageFile", ctypes.c_ulonglong),
+                                ("ullAvailPageFile", ctypes.c_ulonglong),
+                                ("ullTotalVirtual", ctypes.c_ulonglong),
+                                ("ullAvailVirtual", ctypes.c_ulonglong),
+                                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                            ]
+                        stat = MEMORYSTATUSEX()
+                        stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+                        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                            total = int(stat.ullTotalPhys)
+                            available = int(stat.ullAvailPhys)
+                            used = total - available
+                            pct = float(stat.dwMemoryLoad)
+                    except Exception:
+                        pass
+                elif sys.platform == "darwin":
+                    try:
+                        hw_mem = subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True, timeout=2).strip()
+                        total = int(hw_mem)
+                        vm_stat = subprocess.check_output(["vm_stat"], text=True, timeout=2)
+                        page_size = 4096
+                        free_pages = 0
+                        for line in vm_stat.splitlines():
+                            if "page size of" in line:
+                                for token in line.split():
+                                    if token.isdigit():
+                                        page_size = int(token)
+                            elif "Pages free:" in line or "Pages speculative:" in line or "Pages purgeable:" in line:
+                                free_pages += int(line.split()[-1].rstrip("."))
+                        avail = free_pages * page_size
+                        used = max(0, total - avail)
+                        pct = (used / total) * 100 if total > 0 else 0.0
+                    except Exception:
                         pass
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
+                # POSIX sysconf fallback
+                if total == 0 and hasattr(os, "sysconf"):
+                    try:
+                        page_size = os.sysconf("SC_PAGE_SIZE")
+                        total_pages = os.sysconf("SC_PHYS_PAGES")
+                        avail_pages = os.sysconf("SC_AVPHYS_PAGES")
+                        total = total_pages * page_size
+                        available = avail_pages * page_size
+                        used = total - available
+                        pct = (used / total) * 100 if total > 0 else 0.0
+                    except (ValueError, OSError, AttributeError):
+                        pass
 
-        if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-        elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
+        if total > 0:
+            if pct < MEMORY_THRESHOLD_WARNING:
+                return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+            elif pct < MEMORY_THRESHOLD_CRITICAL:
+                return "WARNING", f"{pct:.1f}% used", pct
+            else:
+                return "CRITICAL", f"{pct:.1f}% used", pct
         else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
+            return "WARNING", "Memory metrics unavailable", 0.0
     except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+        return "WARNING", f"Cannot check: {e}", 0.0
 
 
 def check_load_average() -> Tuple[str, str, float]:
     try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
+        load = None
+        if os.path.exists("/proc/loadavg"):
+            try:
+                with open("/proc/loadavg") as f:
+                    parts = f.read().strip().split()
+                    load = float(parts[0])
+            except Exception:
+                pass
+
+        if load is None and hasattr(os, "getloadavg"):
+            try:
+                load = float(os.getloadavg()[0])
+            except (OSError, AttributeError):
+                pass
+
+        if load is None:
+            try:
+                import psutil
+                load = float(psutil.cpu_percent(interval=0.05) / 100.0 * (os.cpu_count() or 1))
+            except (ImportError, Exception):
+                pass
+
+        if load is not None:
             cpu_count = os.cpu_count() or 1
             load_pct = (load / cpu_count) * 100
 
             if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                return "OK", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
             elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                return "WARNING", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
             else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+                return "CRITICAL", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
+        else:
+            return "WARNING", "Load average unavailable on this platform", 0.0
     except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+        return "WARNING", f"Cannot check: {e}", 0.0
 
 
 # ---------------------------------------------------------------------------
