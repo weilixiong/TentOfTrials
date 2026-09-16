@@ -247,8 +247,17 @@ class LogAggregator:
                 self.entries.append(entry)
                 ts = entry.get('timestamp')
                 if ts:
-                    hour = datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%dT%H:00')
-                    self.hourly_counts[hour] += 1
+                    try:
+                        if isinstance(ts, (int, float)):
+                            hour = datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%dT%H:00')
+                            self.hourly_counts[hour] += 1
+                        elif isinstance(ts, str):
+                            parsed_ts = self.parsers[1].extract_timestamp(ts)
+                            if parsed_ts:
+                                hour = datetime.fromtimestamp(parsed_ts, tz=timezone.utc).strftime('%Y-%m-%dT%H:00')
+                                self.hourly_counts[hour] += 1
+                    except (ValueError, OSError, OverflowError):
+                        pass
                 level = entry.get('level', 'unknown').lower()
                 self.level_counts[level] += 1
                 service = entry.get('service', 'unknown')
