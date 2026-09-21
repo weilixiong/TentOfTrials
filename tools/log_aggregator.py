@@ -116,13 +116,31 @@ class LogParser:
 class JSONLogParser(LogParser):
     """Parses structured JSON log lines."""
 
+    @staticmethod
+    def _coerce_timestamp(value: Any) -> Optional[int]:
+        if isinstance(value, (int, float)):
+            return int(value)
+        if not isinstance(value, str) or not value.strip():
+            return None
+        text = value.strip()
+        if text.isdigit():
+            return int(text)
+        try:
+            dt = datetime.fromisoformat(text.replace('Z', '+00:00'))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return int(dt.timestamp())
+        except ValueError:
+            return None
+
     def parse(self, line: str) -> Optional[Dict[str, Any]]:
         try:
             entry = json.loads(line.strip())
             if not isinstance(entry, dict):
                 return None
+            raw_timestamp = entry.get('timestamp') or entry.get('time') or entry.get('@timestamp')
             return {
-                'timestamp': entry.get('timestamp') or entry.get('time') or entry.get('@timestamp'),
+                'timestamp': self._coerce_timestamp(raw_timestamp),
                 'level': entry.get('level') or entry.get('severity') or entry.get('lvl', 'info'),
                 'service': entry.get('service') or entry.get('logger') or entry.get('app'),
                 'message': entry.get('message') or entry.get('msg') or entry.get('event', ''),
@@ -187,7 +205,7 @@ class NginxLogParser(LogParser):
             'message': match.group(5),
             'fields': {
                 'remote_addr': match.group(1),
-                'remote_user': match.group(2),
+                'remote_user': match.group(3),
                 'request': match.group(5),
                 'status': status_code,
                 'body_bytes': match.group(7),
@@ -204,7 +222,8 @@ class NginxLogParser(LogParser):
 
 class LogAggregator:
     def __init__(self):
-        self.parsers = [JSONLogParser(), TextLogParser(), NginxLogParser()]
+        # Keep the permissive text parser last so structured formats get a chance to match.
+        self.parsers = [JSONLogParser(), NginxLogParser(), TextLogParser()]
         self.entries: List[Dict[str, Any]] = []
         self.level_counts: Counter = Counter()
         self.service_counts: Counter = Counter()
