@@ -1,0 +1,5 @@
+{"broken_json": 
+!!! ??? ### not a structured record
+random unparseable garbage line
+{"timestamp": "not-a-date", "level": "INFO", "service": "x", "message": "bad timestamp value"}
+

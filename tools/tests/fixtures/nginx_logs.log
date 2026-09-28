@@ -1,0 +1,4 @@
+127.0.0.1 - - [01/Mar/2024:12:00:00 +0000] "GET /api/health HTTP/1.1" 200 612 "-" "curl/8.0.1"
+10.0.0.5 - alice [01/Mar/2024:12:01:00 +0000] "POST /api/login HTTP/1.1" 302 0 "-" "Mozilla/5.0"
+192.168.1.10 - - [01/Mar/2024:12:02:00 +0000] "GET /missing HTTP/1.1" 404 153 "-" "Mozilla/5.0"
+203.0.113.7 - - [01/Mar/2024:12:03:00 +0000] "GET /boom HTTP/1.1" 500 1024 "https://ref.example" "Mozilla/5.0"

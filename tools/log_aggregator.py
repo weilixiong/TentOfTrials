@@ -112,6 +112,45 @@ class LogParser:
             return match.group(1)
         return None
 
+    def coerce_timestamp(self, value: Any) -> Optional[int]:
+        """Normalize a timestamp value (epoch number or datetime string) to epoch int."""
+        if value is None or isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            try:
+                return int(value)
+            except (ValueError, OverflowError):
+                return None
+        if not isinstance(value, str):
+            return None
+
+        text = value.strip()
+        if not text:
+            return None
+
+        try:
+            return int(float(text))
+        except (ValueError, OverflowError):
+            pass
+
+        candidate = text[:-1] + '+00:00' if text.endswith('Z') else text
+        try:
+            dt = datetime.fromisoformat(candidate)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return int(dt.timestamp())
+        except ValueError:
+            pass
+
+        for fmt in ('%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S',
+                    '%d/%b/%Y:%H:%M:%S', '%b %d %H:%M:%S'):
+            try:
+                dt = datetime.strptime(text, fmt)
+                return int(dt.replace(tzinfo=timezone.utc).timestamp())
+            except ValueError:
+                continue
+        return None
+
 
 class JSONLogParser(LogParser):
     """Parses structured JSON log lines."""
@@ -121,8 +160,11 @@ class JSONLogParser(LogParser):
             entry = json.loads(line.strip())
             if not isinstance(entry, dict):
                 return None
+            raw_timestamp = (
+                entry.get('timestamp') or entry.get('time') or entry.get('@timestamp')
+            )
             return {
-                'timestamp': entry.get('timestamp') or entry.get('time') or entry.get('@timestamp'),
+                'timestamp': self.coerce_timestamp(raw_timestamp),
                 'level': entry.get('level') or entry.get('severity') or entry.get('lvl', 'info'),
                 'service': entry.get('service') or entry.get('logger') or entry.get('app'),
                 'message': entry.get('message') or entry.get('msg') or entry.get('event', ''),
@@ -204,7 +246,9 @@ class NginxLogParser(LogParser):
 
 class LogAggregator:
     def __init__(self):
-        self.parsers = [JSONLogParser(), TextLogParser(), NginxLogParser()]
+        # Nginx runs before the generic text parser, which accepts any non-blank
+        # line and would otherwise swallow nginx access logs first.
+        self.parsers = [JSONLogParser(), NginxLogParser(), TextLogParser()]
         self.entries: List[Dict[str, Any]] = []
         self.level_counts: Counter = Counter()
         self.service_counts: Counter = Counter()
@@ -445,9 +489,10 @@ def main():
             print(f"  ... and {len(results) - 20} more")
 
     summary = aggregator.get_summary()
+    time_range = summary.get('time_range') or {}
     print(f"\nSummary:")
     print(f"  Total entries: {summary['total_entries']:,}")
-    print(f"  Time range: {summary.get('time_range', {}).get('start', 'N/A')} to {summary.get('time_range', {}).get('end', 'N/A')}")
+    print(f"  Time range: {time_range.get('start', 'N/A')} to {time_range.get('end', 'N/A')}")
     print(f"  Error rate: {summary.get('error_rate', 0)}%")
     print(f"  By level: {', '.join(f'{k}={v}' for k, v in summary.get('by_level', {}).items())}")
     print(f"  By service: {', '.join(f'{k}={v}' for k, v in summary.get('by_service', {}).items())}")

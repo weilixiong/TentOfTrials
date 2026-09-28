@@ -1,0 +1,4 @@
+{"timestamp": "2024-03-01T12:00:00Z", "level": "INFO", "service": "auth", "message": "user alice logged in"}
+{"time": "2024-03-01T12:01:30Z", "severity": "ERROR", "logger": "payment", "msg": "charge failed", "order_id": 42}
+{"@timestamp": "2024-03-01T12:02:00Z", "lvl": "warn", "app": "gateway", "event": "upstream latency high", "latency_ms": 1500}
+{"timestamp": 1709294580, "level": "debug", "service": "cache", "message": "cache miss key=user:1"}

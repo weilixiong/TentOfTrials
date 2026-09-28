@@ -1,0 +1,5 @@
+2024-03-01 12:00:00 [auth] INFO user alice logged in
+2024-03-01 12:01:00 [payment] ERROR charge failed for order=99
+2024-03-01 12:02:00 [gateway] WARN upstream latency high
+Mar  1 12:03:00 [syslogd] DEBUG tick
+plain message with no timestamp or level
