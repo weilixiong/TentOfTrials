@@ -104,12 +104,15 @@ class LogParser:
         return 'unknown'
 
     def extract_service(self, line: str) -> Optional[str]:
-        match = re.search(r'\[(\w+)\]', line)
+        match = re.search(r'\[([\w.-]+)\]', line)
         if match:
             return match.group(1)
-        match = re.search(r'(\w+)\s*:', line)
-        if match and match.group(1).isupper():
-            return match.group(1)
+        # Check every "TOKEN:" candidate, not just the first one, since a
+        # timestamp earlier in the line (e.g. "10:24:01") can otherwise be
+        # mistaken for the service tag before the real one is reached.
+        for match in re.finditer(r'(\w+)\s*:', line):
+            if match.group(1).isupper():
+                return match.group(1)
         return None
 
 
@@ -187,7 +190,7 @@ class NginxLogParser(LogParser):
             'message': match.group(5),
             'fields': {
                 'remote_addr': match.group(1),
-                'remote_user': match.group(2),
+                'remote_user': match.group(3),
                 'request': match.group(5),
                 'status': status_code,
                 'body_bytes': match.group(7),
@@ -204,7 +207,10 @@ class NginxLogParser(LogParser):
 
 class LogAggregator:
     def __init__(self):
-        self.parsers = [JSONLogParser(), TextLogParser(), NginxLogParser()]
+        # NginxLogParser must run before TextLogParser: TextLogParser matches
+        # any non-empty line, so it would otherwise swallow nginx access log
+        # lines before NginxLogParser ever sees them.
+        self.parsers = [JSONLogParser(), NginxLogParser(), TextLogParser()]
         self.entries: List[Dict[str, Any]] = []
         self.level_counts: Counter = Counter()
         self.service_counts: Counter = Counter()
@@ -246,7 +252,7 @@ class LogAggregator:
             if entry:
                 self.entries.append(entry)
                 ts = entry.get('timestamp')
-                if ts:
+                if isinstance(ts, (int, float)):
                     hour = datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%dT%H:00')
                     self.hourly_counts[hour] += 1
                 level = entry.get('level', 'unknown').lower()
@@ -280,7 +286,7 @@ class LogAggregator:
     def _get_time_range(self) -> Optional[Dict[str, str]]:
         timestamps = [
             e['timestamp'] for e in self.entries
-            if e.get('timestamp')
+            if isinstance(e.get('timestamp'), (int, float))
         ]
         if not timestamps:
             return None
@@ -303,7 +309,7 @@ class LogAggregator:
             level = entry.get('level', '').lower()
             if level in ('error', 'critical'):
                 ts = entry.get('timestamp')
-                if ts:
+                if isinstance(ts, (int, float)):
                     hour = datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%dT%H:00')
                     errors_by_hour[hour] += 1
         return [
