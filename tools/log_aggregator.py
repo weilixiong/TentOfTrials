@@ -116,13 +116,40 @@ class LogParser:
 class JSONLogParser(LogParser):
     """Parses structured JSON log lines."""
 
+    def _coerce_timestamp(self, raw: Any) -> Optional[int]:
+        """JSON 时间戳可能是字符串/数字，统一转 epoch int（与 text/nginx 一致）。
+        转不了返回 None。"""
+        if raw is None or isinstance(raw, bool):
+            return None
+        if isinstance(raw, (int, float)):
+            return int(raw)
+        if isinstance(raw, str):
+            s = raw.strip()
+            for fmt in ('%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%SZ',
+                        '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S.%fZ',
+                        '%Y-%m-%d %H:%M:%S', '%d/%b/%Y:%H:%M:%S %z'):
+                try:
+                    dt = datetime.strptime(s, fmt)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    return int(dt.timestamp())
+                except ValueError:
+                    continue
+            try:
+                return int(float(s))  # 纯数字字符串
+            except (ValueError, TypeError):
+                return None
+        return None
+
     def parse(self, line: str) -> Optional[Dict[str, Any]]:
         try:
             entry = json.loads(line.strip())
             if not isinstance(entry, dict):
                 return None
+            raw_ts = (entry.get('timestamp') or entry.get('time')
+                      or entry.get('@timestamp'))
             return {
-                'timestamp': entry.get('timestamp') or entry.get('time') or entry.get('@timestamp'),
+                'timestamp': self._coerce_timestamp(raw_ts),
                 'level': entry.get('level') or entry.get('severity') or entry.get('lvl', 'info'),
                 'service': entry.get('service') or entry.get('logger') or entry.get('app'),
                 'message': entry.get('message') or entry.get('msg') or entry.get('event', ''),
@@ -187,7 +214,7 @@ class NginxLogParser(LogParser):
             'message': match.group(5),
             'fields': {
                 'remote_addr': match.group(1),
-                'remote_user': match.group(2),
+                'remote_user': match.group(3),
                 'request': match.group(5),
                 'status': status_code,
                 'body_bytes': match.group(7),
@@ -204,7 +231,9 @@ class NginxLogParser(LogParser):
 
 class LogAggregator:
     def __init__(self):
-        self.parsers = [JSONLogParser(), TextLogParser(), NginxLogParser()]
+        # 顺序有讲究：TextLogParser 对任何非空行都不返回 None，
+        # 必须放最后，否则 nginx 行永远到不了 NginxLogParser
+        self.parsers = [JSONLogParser(), NginxLogParser(), TextLogParser()]
         self.entries: List[Dict[str, Any]] = []
         self.level_counts: Counter = Counter()
         self.service_counts: Counter = Counter()
