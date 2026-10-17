@@ -1,0 +1,6 @@
+{"timestamp": "2024-01-15T10:30:00Z", "level": "INFO", "service": "auth", "message": "User login successful for user_id=12345"}
+{"time": "2024-01-15T10:31:00Z", "severity": "ERROR", "logger": "payment", "msg": "Transaction failed for order_id=98765: insufficient_funds"}
+{"@timestamp": "2024-01-15T10:32:00Z", "level": "WARN", "app": "api", "event": "Rate limit exceeded for client_ip=192.168.1.100"}
+{"timestamp": "2024-01-15T10:33:00Z", "level": "DEBUG", "service": "cache", "message": "Cache hit for key=user:profile:12345"}
+{"timestamp": "2024-01-15T10:34:00Z", "level": "ERROR", "service": "auth", "message": "Authentication failed for user_id=99999: invalid_token", "metadata": {"ip": "10.0.0.1", "user_agent": "Mozilla/5.0"}}
+{"time": "2024-01-15T10:35:00Z", "severity": "INFO", "logger": "notification", "msg": "Email sent to user@example.com", "metadata": {"template": "welcome", "priority": "normal"}}

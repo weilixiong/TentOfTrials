@@ -187,7 +187,7 @@ class NginxLogParser(LogParser):
             'message': match.group(5),
             'fields': {
                 'remote_addr': match.group(1),
-                'remote_user': match.group(2),
+                'remote_user': match.group(3),
                 'request': match.group(5),
                 'status': status_code,
                 'body_bytes': match.group(7),
@@ -240,10 +240,60 @@ class LogAggregator:
             logger.debug(f"  {filepath.name}: {count} entries")
         return total
 
+    def _normalize_timestamp(self, ts: Any) -> Optional[int]:
+        """Normalize a timestamp value to int (Unix epoch).
+
+        JSON logs may return timestamps as strings (e.g. "2024-01-15T10:30:00Z"),
+        while text/nginx parsers return ints. This ensures consistent handling.
+        """
+        if ts is None:
+            return None
+        if isinstance(ts, int):
+            return ts
+        if isinstance(ts, str):
+            # Try parsing as ISO 8601 or other common formats
+            for fmt in [
+                '%Y-%m-%dT%H:%M:%S%z',
+                '%Y-%m-%dT%H:%M:%SZ',
+                '%Y-%m-%dT%H:%M:%S',
+                '%Y-%m-%d %H:%M:%S',
+                '%d/%b/%Y:%H:%M:%S %z',
+                '%b %d %H:%M:%S',
+            ]:
+                try:
+                    dt = datetime.strptime(ts, fmt)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    return int(dt.timestamp())
+                except ValueError:
+                    continue
+            # Try extracting timestamp from the string using regex patterns
+            for pattern, _ in LogParser.TIMESTAMP_PATTERNS:
+                match = re.search(pattern, ts)
+                if match:
+                    dt_str = match.group(0)
+                    for fmt in [
+                        '%Y-%m-%dT%H:%M:%S',
+                        '%Y-%m-%d %H:%M:%S',
+                        '%d/%b/%Y:%H:%M:%S',
+                        '%b %d %H:%M:%S',
+                    ]:
+                        try:
+                            dt = datetime.strptime(dt_str, fmt)
+                            return int(dt.replace(tzinfo=timezone.utc).timestamp())
+                        except ValueError:
+                            continue
+            return None
+        return None
+
     def _parse_line(self, line: str) -> bool:
         for parser in self.parsers:
             entry = parser.parse(line)
             if entry:
+                # Normalize timestamp to int for consistent aggregation
+                ts = entry.get('timestamp')
+                if ts is not None:
+                    entry['timestamp'] = self._normalize_timestamp(ts)
                 self.entries.append(entry)
                 ts = entry.get('timestamp')
                 if ts:

@@ -1,0 +1,6 @@
+2024-01-15T10:30:00 INFO [auth] User login successful for user_id=12345
+2024-01-15 10:31:00 ERROR [payment] Transaction failed for order_id=98765: insufficient_funds
+Jan 15 10:32:00 WARN [api] Rate limit exceeded for client_ip=192.168.1.100
+2024-01-15T10:33:00 DEBUG [cache] Cache hit for key=user:profile:12345
+2024-01-15T10:34:00 ERROR [auth] Authentication failed for user_id=99999: invalid_token
+Jan 15 10:35:00 INFO [notification] Email sent to user@example.com

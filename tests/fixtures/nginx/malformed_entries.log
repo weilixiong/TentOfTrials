@@ -1,0 +1,3 @@
+192.168.1.100 - frank [15/Jan/2024:10:30:00 +0000] "GET /api/users HTTP/1.1" 200
+this is not an nginx log line
+192.168.1.100 - frank [15/Jan/2024:10:30:00 +0000]
