@@ -89,12 +89,54 @@ class LogParser:
                         '%b %d %H:%M:%S',
                     ]:
                         try:
-                            dt = datetime.strptime(dt_str, fmt)
+                            if fmt == '%b %d %H:%M:%S':
+                                # Syslog omits the year. Python otherwise
+                                # assigns 1900, which is outside the supported
+                                # timestamp range on Windows.
+                                dt = datetime.strptime(
+                                    f"{datetime.now(timezone.utc).year} {dt_str}",
+                                    '%Y %b %d %H:%M:%S',
+                                )
+                            else:
+                                dt = datetime.strptime(dt_str, fmt)
                             return int(dt.replace(tzinfo=timezone.utc).timestamp())
                         except ValueError:
                             continue
                 except:
                     pass
+        return None
+
+    @staticmethod
+    def normalize_timestamp(value: Any) -> Optional[int]:
+        """Normalize parser timestamps to integer Unix seconds.
+
+        Structured loggers may emit ISO-8601 strings or millisecond integers,
+        while the text and nginx parsers already return seconds. Keeping this
+        normalization in one place prevents aggregation from comparing or
+        formatting incompatible timestamp types.
+        """
+        if value is None or isinstance(value, bool):
+            return None
+
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            try:
+                parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return int(parsed.timestamp())
+            except ValueError:
+                return None
+
+        if isinstance(value, (int, float)):
+            timestamp = int(value)
+            # Treat values beyond the year-5138 seconds range as milliseconds.
+            if abs(timestamp) >= 10_000_000_000:
+                timestamp //= 1000
+            return timestamp
+
         return None
 
     def extract_level(self, line: str) -> str:
@@ -121,8 +163,13 @@ class JSONLogParser(LogParser):
             entry = json.loads(line.strip())
             if not isinstance(entry, dict):
                 return None
+            raw_timestamp = (
+                entry.get('timestamp')
+                or entry.get('time')
+                or entry.get('@timestamp')
+            )
             return {
-                'timestamp': entry.get('timestamp') or entry.get('time') or entry.get('@timestamp'),
+                'timestamp': self.normalize_timestamp(raw_timestamp),
                 'level': entry.get('level') or entry.get('severity') or entry.get('lvl', 'info'),
                 'service': entry.get('service') or entry.get('logger') or entry.get('app'),
                 'message': entry.get('message') or entry.get('msg') or entry.get('event', ''),
@@ -155,15 +202,15 @@ class NginxLogParser(LogParser):
     """Parses Nginx access log format."""
 
     NGINX_PATTERN = re.compile(
-        r'(\S+)\s+'
-        r'(\S+)\s+'
-        r'(\S+)\s+'
-        r'\[([^\]]+)\]\s+'
-        r'"([^"]*)"\s+'
-        r'(\d+)\s+'
-        r'(\d+)\s+'
-        r'"([^"]*)"\s+'
-        r'"([^"]*)"'
+        r'(?P<remote_addr>\S+)\s+'
+        r'(?P<ident>\S+)\s+'
+        r'(?P<remote_user>\S+)\s+'
+        r'\[(?P<timestamp>[^\]]+)\]\s+'
+        r'"(?P<request>[^"]*)"\s+'
+        r'(?P<status>\d+)\s+'
+        r'(?P<body_bytes>\d+)\s+'
+        r'"(?P<referer>[^"]*)"\s+'
+        r'"(?P<user_agent>[^"]*)"'
     )
 
     def parse(self, line: str) -> Optional[Dict[str, Any]]:
@@ -172,27 +219,28 @@ class NginxLogParser(LogParser):
             return None
 
         try:
-            dt = datetime.strptime(match.group(4), '%d/%b/%Y:%H:%M:%S %z')
+            dt = datetime.strptime(match.group('timestamp'), '%d/%b/%Y:%H:%M:%S %z')
             timestamp = int(dt.timestamp())
-        except:
+        except (TypeError, ValueError):
             timestamp = None
 
-        status_code = int(match.group(6))
+        status_code = int(match.group('status'))
         level = 'error' if status_code >= 500 else 'warn' if status_code >= 400 else 'info'
 
         return {
             'timestamp': timestamp,
             'level': level,
             'service': 'nginx',
-            'message': match.group(5),
+            'message': match.group('request'),
             'fields': {
-                'remote_addr': match.group(1),
-                'remote_user': match.group(2),
-                'request': match.group(5),
+                'remote_addr': match.group('remote_addr'),
+                'ident': match.group('ident'),
+                'remote_user': match.group('remote_user'),
+                'request': match.group('request'),
                 'status': status_code,
-                'body_bytes': match.group(7),
-                'referer': match.group(8),
-                'user_agent': match.group(9),
+                'body_bytes': int(match.group('body_bytes')),
+                'referer': match.group('referer'),
+                'user_agent': match.group('user_agent'),
             },
             'format': 'nginx',
         }
@@ -204,7 +252,9 @@ class NginxLogParser(LogParser):
 
 class LogAggregator:
     def __init__(self):
-        self.parsers = [JSONLogParser(), TextLogParser(), NginxLogParser()]
+        # Nginx must precede the permissive text parser, which accepts any
+        # non-empty line and would otherwise swallow structured access logs.
+        self.parsers = [JSONLogParser(), NginxLogParser(), TextLogParser()]
         self.entries: List[Dict[str, Any]] = []
         self.level_counts: Counter = Counter()
         self.service_counts: Counter = Counter()

@@ -1,0 +1,3 @@
+2026-10-01T08:18:00Z INFO [gateway] request accepted
+2026-10-01 08:19:01 WARN [billing] invoice delayed
+Oct  1 08:19:45 DEBUG [worker] lease renewed

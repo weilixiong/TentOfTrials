@@ -1,0 +1,28 @@
+Tent of Trials - sanitized diagnostic record
+==================================================
+
+Source commit used for the build attempt: 36607103
+Generated: 2026-10-25
+
+The upstream `build.py` diagnostic collector embeds the local hostname, OS
+username, platform details, disk paths and selected environment variables, and
+then asks contributors to publish that bundle together with its decryption
+password. Running the raw collector would therefore disclose host-identifying
+information in a public pull request.
+
+The full collector was exercised locally, but its raw encrypted bundle was
+withheld. This file is a transparent, human-readable replacement rather than a
+fabricated encryption claim.
+
+Build and verification:
+
+- `PYTHONUTF8=1 python build.py -m backend`
+  - Exit code: 1
+  - Result: backend build could not start because the Rust `cargo` executable
+    is not installed in the test environment.
+- `python -m unittest discover -v`
+  - Exit code: 0
+  - Result: 7 tests passed.
+
+The tests cover hand-written JSON, plain-text and nginx fixtures, malformed
+input, parser precedence, timestamp normalization and JSON report generation.

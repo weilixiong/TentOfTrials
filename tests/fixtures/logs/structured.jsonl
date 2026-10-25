@@ -1,0 +1,3 @@
+{"timestamp":"2026-10-01T08:15:30Z","level":"ERROR","service":"payments","message":"settlement rejected","trace_id":"trace-a1"}
+{"time":1790842531,"severity":"warn","logger":"ledger","msg":"balance drift detected","account":"acct-7"}
+{"@timestamp":"2026-10-01T08:17:01.125Z","lvl":"debug","app":"worker","event":"retry scheduled","attempt":2}
