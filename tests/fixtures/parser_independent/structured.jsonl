@@ -1,0 +1,3 @@
+{"timestamp": "2026-10-01T08:15:30Z", "level": "ERROR", "service": "payments", "message": "settlement rejected"}
+{"timestamp": 1790842531, "level": "WARN", "service": "ledger", "message": "balance drift detected"}
+{"@timestamp": "2026-10-01T08:17:01Z", "level": "INFO", "service": "worker", "message": "retry scheduled"}

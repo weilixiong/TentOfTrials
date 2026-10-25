@@ -1,0 +1,5 @@
+203.0.113.10 - alice [01/Oct/2026:08:20:00 +0000] "GET /api/orders HTTP/1.1" 200 512 "-" "curl/8.7.1"
+198.51.100.7 - - [01/Oct/2026:08:21:00 +0000] "POST /api/payments HTTP/1.1" 503 31 "https://example.test/checkout" "Mozilla/5.0"
+192.0.2.44 - bob [01/Oct/2026:08:22:00 +0000] "GET /health HTTP/1.1" 404 0 "-" "monitor/2.1"
+203.0.113.99 - carol [01/Oct/2026:08:23:00 +0000] "GET /static/logo.png HTTP/1.1" 200 - "-" "curl/8.7.1"
+203.0.113.55 - - [01/Oct/2026:08:24:00 +0000] "GET /health HTTP/1.1" 200 512
