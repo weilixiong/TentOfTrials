@@ -154,6 +154,10 @@ class TextLogParser(LogParser):
 class NginxLogParser(LogParser):
     """Parses Nginx access log format."""
 
+    # Nginx combined log format. body_bytes may be '-' (no bytes sent,
+    # the standard marker for zero-byte responses), and the trailing
+    # referer/user_agent pair is absent in the common log format, so
+    # both are optional here instead of rejecting the whole line.
     NGINX_PATTERN = re.compile(
         r'(\S+)\s+'
         r'(\S+)\s+'
@@ -161,9 +165,8 @@ class NginxLogParser(LogParser):
         r'\[([^\]]+)\]\s+'
         r'"([^"]*)"\s+'
         r'(\d+)\s+'
-        r'(\d+)\s+'
-        r'"([^"]*)"\s+'
-        r'"([^"]*)"'
+        r'(\d+|-)'  # body_bytes: digits, or '-' for none sent
+        r'(?:\s+"([^"]*)"\s+"([^"]*)")?'
     )
 
     def parse(self, line: str) -> Optional[Dict[str, Any]]:
@@ -180,6 +183,7 @@ class NginxLogParser(LogParser):
         status_code = int(match.group(6))
         level = 'error' if status_code >= 500 else 'warn' if status_code >= 400 else 'info'
 
+        body_bytes = match.group(7)
         return {
             'timestamp': timestamp,
             'level': level,
@@ -190,9 +194,9 @@ class NginxLogParser(LogParser):
                 'remote_user': match.group(2),
                 'request': match.group(5),
                 'status': status_code,
-                'body_bytes': match.group(7),
-                'referer': match.group(8),
-                'user_agent': match.group(9),
+                'body_bytes': 0 if body_bytes == '-' else int(body_bytes),
+                'referer': match.group(8) or '-',
+                'user_agent': match.group(9) or '-',
             },
             'format': 'nginx',
         }
@@ -204,7 +208,10 @@ class NginxLogParser(LogParser):
 
 class LogAggregator:
     def __init__(self):
-        self.parsers = [JSONLogParser(), TextLogParser(), NginxLogParser()]
+        # Nginx must precede the permissive text parser, which accepts
+        # any non-empty line and would otherwise swallow nginx lines
+        # before they reach NginxLogParser.
+        self.parsers = [JSONLogParser(), NginxLogParser(), TextLogParser()]
         self.entries: List[Dict[str, Any]] = []
         self.level_counts: Counter = Counter()
         self.service_counts: Counter = Counter()
