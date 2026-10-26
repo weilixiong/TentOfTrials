@@ -1,0 +1,4 @@
+{"timestamp":"2026-10-24T09:15:30Z","level":"ERROR","service":"payments","message":"charge declined","request_id":"req-7"}
+{"time":1792833391,"severity":"warning","logger":"worker","msg":"retry scheduled","attempt":2}
+not valid json
+["valid", "json", "but", "not", "an", "object"]

@@ -1,0 +1,3 @@
+203.0.113.10 - alice [24/Oct/2026:12:34:56 +0000] "GET /health HTTP/1.1" 200 17 "-" "fixture-client/1.0"
+198.51.100.23 - - [24/Oct/2026:12:35:57 +0000] "POST /orders HTTP/1.1" 503 91 "https://example.test/cart" "fixture-client/2.0"
+192.0.2.44 - - [24/Oct/2026:12:36:58 +0000] "GET /missing HTTP/1.1" 404 12 "-" "fixture-client/3.0"
