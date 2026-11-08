@@ -1,0 +1,4 @@
+192.168.1.100 - - [15/Jan/2024:14:32:01 +0000] "GET /index.html HTTP/1.1" 200 1024 "https://example.com" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+192.168.1.101 - - [15/Jan/2024:14:32:01 +0000] "GET /missing.png HTTP/1.1" 404 256 "-" "curl/7.88.1"
+192.168.1.102 - - [15/Jan/2024:14:32:01 +0000] "POST /api/v1/checkout HTTP/1.1" 500 512 "https://example.com/cart" "Mozilla/5.0"
+192.168.1.103 - - [15/Jan/2024:14:32:01 +0000] "GET /healthz HTTP/1.1" 503 128 "-" "Kube-Probe/1.28"

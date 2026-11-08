@@ -89,7 +89,11 @@ class LogParser:
                         '%b %d %H:%M:%S',
                     ]:
                         try:
-                            dt = datetime.strptime(dt_str, fmt)
+                            if fmt == '%b %d %H:%M:%S':
+                                current_year = datetime.now(timezone.utc).year
+                                dt = datetime.strptime(f"{current_year} {dt_str}", f"%Y {fmt}")
+                            else:
+                                dt = datetime.strptime(dt_str, fmt)
                             return int(dt.replace(tzinfo=timezone.utc).timestamp())
                         except ValueError:
                             continue
@@ -116,13 +120,51 @@ class LogParser:
 class JSONLogParser(LogParser):
     """Parses structured JSON log lines."""
 
+    def _normalize_timestamp(self, raw_ts: Any) -> Optional[int]:
+        if raw_ts is None or isinstance(raw_ts, bool):
+            return None
+        if isinstance(raw_ts, (int, float)):
+            ts = int(raw_ts)
+            if abs(ts) > 1e11:
+                ts = ts // 1000
+            return ts
+        if isinstance(raw_ts, str):
+            s = raw_ts.strip()
+            extracted = self.extract_timestamp(s)
+            if extracted is not None:
+                return extracted
+            for fmt in (
+                '%Y-%m-%dT%H:%M:%SZ',
+                '%Y-%m-%dT%H:%M:%S%z',
+                '%Y-%m-%dT%H:%M:%S.%fZ',
+                '%Y-%m-%dT%H:%M:%S.%f%z',
+                '%Y-%m-%dT%H:%M:%S',
+                '%Y-%m-%d %H:%M:%S',
+            ):
+                try:
+                    dt = datetime.strptime(s, fmt)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    return int(dt.timestamp())
+                except ValueError:
+                    continue
+            try:
+                val = int(float(s))
+                if abs(val) > 1e11:
+                    val = val // 1000
+                return val
+            except (ValueError, TypeError):
+                return None
+        return None
+
     def parse(self, line: str) -> Optional[Dict[str, Any]]:
         try:
             entry = json.loads(line.strip())
             if not isinstance(entry, dict):
                 return None
+            raw_ts = entry.get('timestamp') or entry.get('time') or entry.get('@timestamp')
             return {
-                'timestamp': entry.get('timestamp') or entry.get('time') or entry.get('@timestamp'),
+                'timestamp': self._normalize_timestamp(raw_ts),
                 'level': entry.get('level') or entry.get('severity') or entry.get('lvl', 'info'),
                 'service': entry.get('service') or entry.get('logger') or entry.get('app'),
                 'message': entry.get('message') or entry.get('msg') or entry.get('event', ''),
@@ -204,7 +246,8 @@ class NginxLogParser(LogParser):
 
 class LogAggregator:
     def __init__(self):
-        self.parsers = [JSONLogParser(), TextLogParser(), NginxLogParser()]
+        # Nginx must precede the permissive TextLogParser, which matches any non-empty line
+        self.parsers = [JSONLogParser(), NginxLogParser(), TextLogParser()]
         self.entries: List[Dict[str, Any]] = []
         self.level_counts: Counter = Counter()
         self.service_counts: Counter = Counter()

@@ -1,0 +1,4 @@
+{"timestamp": 1705329121, "level": "ERROR", "service": "auth-service", "message": "Failed login attempt for user admin", "user_id": 42}
+{"time": "2024-01-15T14:32:01Z", "severity": "WARN", "logger": "payment-service", "msg": "Payment gateway response delayed", "latency_ms": 3500}
+{"@timestamp": 1705329121, "lvl": "INFO", "app": "api-gateway", "event": "Route dispatched successfully", "path": "/api/v1/orders"}
+{"timestamp": 1705329121, "level": "DEBUG", "service": "cache-service", "message": "Cache key invalidated", "key": "session:xyz"}

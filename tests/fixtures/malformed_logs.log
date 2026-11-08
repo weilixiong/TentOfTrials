@@ -1,0 +1,5 @@
+{"timestamp": 1705329121, "level": "ERROR", "message": 
+[1, 2, 3]
+*** corrupted disk header sector 0x7FA3 ***
+192.168.1.1 - - [invalid-timestamp] "BROKEN REQUEST
+   

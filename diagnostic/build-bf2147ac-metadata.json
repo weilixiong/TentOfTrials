@@ -1,0 +1,75 @@
+{
+  "generated_at": "2026-11-08T02:48:15.586399+00:00",
+  "commit": "bf2147ac",
+  "diagnostic_logd": "diagnostic/build-bf2147ac.logd",
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": "134d400dca310e094cf6",
+  "decrypt_command": "encryptly unpack diagnostic/build-bf2147ac.logd <outdir> --password 134d400dca310e094cf6",
+  "total_modules": 10,
+  "passed": 7,
+  "failed": 3,
+  "modules": [
+    {
+      "name": "backend",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "frontend",
+      "status": "PASS",
+      "elapsed_seconds": 3.989,
+      "artifact": "/Users/nevioniebel/Documents/Projekte/Freelancing/scratch/weilixiong_tent_5/frontend/dist"
+    },
+    {
+      "name": "market",
+      "status": "PASS",
+      "elapsed_seconds": 0.786,
+      "artifact": "/Users/nevioniebel/Documents/Projekte/Freelancing/scratch/weilixiong_tent_5/market/market"
+    },
+    {
+      "name": "frailbox",
+      "status": "FAIL",
+      "elapsed_seconds": 0.054,
+      "artifact": null
+    },
+    {
+      "name": "engine",
+      "status": "PASS",
+      "elapsed_seconds": 5.481,
+      "artifact": "/Users/nevioniebel/Documents/Projekte/Freelancing/scratch/weilixiong_tent_5/frailbox/engine/build/trial-engine"
+    },
+    {
+      "name": "compliance",
+      "status": "PASS",
+      "elapsed_seconds": 0.379,
+      "artifact": "/Users/nevioniebel/Documents/Projekte/Freelancing/scratch/weilixiong_tent_5/compliance/build"
+    },
+    {
+      "name": "v2-market-stream",
+      "status": "PASS",
+      "elapsed_seconds": 0.056,
+      "artifact": null
+    },
+    {
+      "name": "nfc-scanner",
+      "status": "PASS",
+      "elapsed_seconds": 0.004,
+      "artifact": null
+    },
+    {
+      "name": "openapi-haskell",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "openapi-tools",
+      "status": "PASS",
+      "elapsed_seconds": 0.005,
+      "artifact": null
+    }
+  ],
+  "pr_note": "Include this metadata and diagnostic/build-bf2147ac.logd in your PR. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
