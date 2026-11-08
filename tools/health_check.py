@@ -149,51 +149,165 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
         return "WARNING", f"Cannot check: {e}", 0
 
 
-def check_memory_usage() -> Tuple[str, str, float]:
+# Filesystem paths are module-level so tests can point them at a location that
+# does not exist, which is how a non-Linux host is simulated without patching
+# the builtin open().
+PROC_MEMINFO = "/proc/meminfo"
+PROC_LOADAVG = "/proc/loadavg"
+
+
+def _read_meminfo(path: str) -> Tuple[int, int]:
+    """Parse a Linux /proc/meminfo file into (total_bytes, available_bytes)."""
+    meminfo: Dict[str, int] = {}
+    with open(path) as f:
+        for line in f:
+            parts = line.split(":")
+            if len(parts) != 2:
+                continue
+            key = parts[0].strip()
+            value = parts[1].strip().replace(" kB", "")
+            try:
+                meminfo[key] = int(value) * 1024
+            except ValueError:
+                pass
+    return meminfo.get("MemTotal", 0), meminfo.get("MemAvailable", 0)
+
+
+def _memory_fallback() -> Tuple[int, int]:
+    """Best-effort (total_bytes, available_bytes) using the standard library.
+
+    Returns (0, 0) when the platform offers no way to read memory at all.
+    """
+    # psutil is the most portable option when the caller already has it.
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
+        import psutil  # type: ignore
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
+        vm = psutil.virtual_memory()
+        return int(vm.total), int(vm.available)
+    except Exception:
+        pass
 
-        if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-        elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
-        else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+    if sys.platform == "darwin":
+        total = 0
+        try:
+            total = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"]).strip())
+        except Exception:
+            pass
+
+        available = 0
+        try:
+            out = subprocess.check_output(["vm_stat"], text=True)
+            page_size = 4096
+            free_pages = inactive = speculative = 0
+            for line in out.splitlines():
+                if "page size of" in line:
+                    digits = "".join(ch for ch in line if ch.isdigit())
+                    if digits:
+                        page_size = int(digits)
+                elif line.startswith("Pages free:"):
+                    free_pages = int(line.split(":")[1].strip().rstrip("."))
+                elif line.startswith("Pages inactive:"):
+                    inactive = int(line.split(":")[1].strip().rstrip("."))
+                elif line.startswith("Pages speculative:"):
+                    speculative = int(line.split(":")[1].strip().rstrip("."))
+            available = (free_pages + inactive + speculative) * page_size
+        except Exception:
+            pass
+        return total, available
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            class _MemoryStatusEx(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            stat = _MemoryStatusEx()
+            stat.dwLength = ctypes.sizeof(_MemoryStatusEx)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                return int(stat.ullTotalPhys), int(stat.ullAvailPhys)
+        except Exception:
+            pass
+
+    # Last resort: physical memory size only. Availability stays unknown.
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        total_pages = os.sysconf("SC_PHYS_PAGES")
+        return int(page_size * total_pages), 0
+    except (ValueError, OSError, AttributeError):
+        return 0, 0
+
+
+def check_memory_usage() -> Tuple[str, str, float]:
+    total = available = 0
+    try:
+        total, available = _read_meminfo(PROC_MEMINFO)
+    except Exception:
+        pass
+
+    if total <= 0:
+        total, available = _memory_fallback()
+
+    if total <= 0:
+        return "WARNING", "Cannot read memory usage on this platform", 0.0
+
+    if available <= 0:
+        # Total is known but the platform does not expose free memory.
+        return (
+            "WARNING",
+            f"Total memory {total // (1024**3)}GB; free memory unavailable on this platform",
+            0.0,
+        )
+
+    used = total - available
+    pct = (used / total) * 100
+
+    if pct < MEMORY_THRESHOLD_WARNING:
+        return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+    elif pct < MEMORY_THRESHOLD_CRITICAL:
+        return "WARNING", f"{pct:.1f}% used", pct
+    else:
+        return "CRITICAL", f"{pct:.1f}% used", pct
+
+
+def _read_loadavg(path: str) -> float:
+    with open(path) as f:
+        return float(f.read().strip().split()[0])
 
 
 def check_load_average() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+    load: Optional[float] = None
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+    try:
+        load = _read_loadavg(PROC_LOADAVG)
+    except Exception:
+        # Not Linux, or /proc is not mounted: try the portable stdlib call.
+        try:
+            load = float(os.getloadavg()[0])
+        except (OSError, AttributeError):
+            # Windows has no load-average concept. Report that plainly instead
+            # of surfacing a FileNotFoundError as the status detail.
+            return "OK", "Load average not supported on this platform", 0.0
+
+    cpu_count = os.cpu_count() or 1
+    load_pct = (load / cpu_count) * 100
+
+    if load_pct < 70:
+        return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    elif load_pct < 90:
+        return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    else:
+        return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
 
 
 # ---------------------------------------------------------------------------
