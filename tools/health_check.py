@@ -37,6 +37,7 @@ import socket
 import ssl
 import subprocess
 import sys
+from typing import Optional, Tuple
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -63,6 +64,70 @@ DISK_THRESHOLD_CRITICAL = 90
 
 MEMORY_THRESHOLD_WARNING = 80
 MEMORY_THRESHOLD_CRITICAL = 90
+
+MEMINFO_PATH = "/proc/meminfo"
+LOADAVG_PATH = "/proc/loadavg"
+
+
+def _read_proc_meminfo() -> Optional[Tuple[int, int]]:
+    try:
+        with open(MEMINFO_PATH) as f:
+            meminfo = {}
+            for line in f:
+                parts = line.split(":")
+                if len(parts) == 2:
+                    key = parts[0].strip()
+                    value = parts[1].strip().replace(" kB", "")
+                    try:
+                        meminfo[key] = int(value) * 1024
+                    except ValueError:
+                        pass
+        total = meminfo.get("MemTotal", 0)
+        available = meminfo.get("MemAvailable", 0)
+        if total > 0:
+            return total, available
+    except (FileNotFoundError, OSError):
+        pass
+    return None
+
+
+def _read_macos_memory() -> Optional[Tuple[int, int]]:
+    try:
+        total = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True).strip())
+        page_size = int(subprocess.check_output(["sysctl", "-n", "hw.pagesize"], text=True).strip())
+        out = subprocess.check_output(["vm_stat"], text=True)
+        free = 0
+        for line in out.splitlines():
+            key, _, value = line.partition(":")
+            if key.strip() in ("Pages free", "Pages inactive", "Pages speculative"):
+                try:
+                    free += int(value.strip().rstrip(".")) * page_size
+                except ValueError:
+                    pass
+        return total, free
+    except Exception:
+        return None
+
+
+def _read_windows_memory() -> Optional[Tuple[int, int]]:
+    try:
+        import ctypes
+        class _MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+        stat = _MEMORYSTATUSEX()
+        stat.dwLength = ctypes.sizeof(stat)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+            return None
+        return int(stat.ullTotalPhys), int(stat.ullAvailPhys)
+    except Exception:
+        return None
+
 
 # ---------------------------------------------------------------------------
 # CHECK FUNCTIONS
@@ -150,50 +215,64 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
 
 
 def check_memory_usage() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
+    """Return (status, detail, pct) for memory usage.
 
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
-        used = total - available
-        pct = (used / total) * 100 if total > 0 else 0
+    Tries /proc/meminfo first (Linux). Falls back to platform-specific
+    probes on macOS and Windows when /proc is unavailable, so non-Linux
+    hosts report useful values instead of a generic read error.
+    """
+    mem = _read_proc_meminfo()
+    if mem is None and sys.platform == "darwin":
+        mem = _read_macos_memory()
+    if mem is None and sys.platform == "win32":
+        mem = _read_windows_memory()
 
-        if pct < MEMORY_THRESHOLD_WARNING:
-            return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
-        elif pct < MEMORY_THRESHOLD_CRITICAL:
-            return "WARNING", f"{pct:.1f}% used", pct
-        else:
-            return "CRITICAL", f"{pct:.1f}% used", pct
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+    if mem is None:
+        return "WARNING", f"Memory check unavailable on this platform ({sys.platform})", 0.0
+
+    total, available = mem
+    if total <= 0:
+        return "WARNING", "Memory total reported as zero", 0.0
+
+    used = total - available
+    pct = (used / total) * 100
+
+    if pct < MEMORY_THRESHOLD_WARNING:
+        return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+    elif pct < MEMORY_THRESHOLD_CRITICAL:
+        return "WARNING", f"{pct:.1f}% used", pct
+    else:
+        return "CRITICAL", f"{pct:.1f}% used", pct
 
 
 def check_load_average() -> Tuple[str, str, float]:
-    try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
+    """Return (status, detail, load) for 1-minute load average.
 
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-    except Exception as e:
-        return "WARNING", f"Cannot check: {e}", 0
+    Uses /proc/loadavg on Linux and falls back to os.getloadavg() on
+    other Unix systems. On platforms where neither exists (e.g. Windows)
+    returns a WARNING instead of an error.
+    """
+    load = None
+    try:
+        with open(LOADAVG_PATH) as f:
+            load = float(f.read().strip().split()[0])
+    except (FileNotFoundError, OSError, ValueError, IndexError):
+        try:
+            load = float(os.getloadavg()[0])
+        except (OSError, AttributeError):
+            return "WARNING", f"Load average unavailable on this platform ({sys.platform})", 0.0
+
+    cpu_count = os.cpu_count() or 1
+    load_pct = (load / cpu_count) * 100
+
+    if load_pct < 70:
+        return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    elif load_pct < 90:
+        return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+    else:
+        return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+
+
 
 
 # ---------------------------------------------------------------------------
