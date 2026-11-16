@@ -149,20 +149,227 @@ def check_disk_usage(path: str = "/") -> Tuple[str, str, float]:
         return "WARNING", f"Cannot check: {e}", 0
 
 
+# ---------------------------------------------------------------------------
+# CROSS-PLATFORM RESOURCE FALLBACKS
+#
+# The memory and load checks used to read /proc/meminfo and /proc/loadavg
+# directly, which only exist on Linux. The helpers below keep that path
+# untouched, but provide standard-library fallbacks (ctypes, sysctl, vm_stat,
+# sysconf and os.getloadavg) so the checks stay useful on macOS, Windows and
+# BSD, where the /proc read used to degrade to a generic failure.
+# ---------------------------------------------------------------------------
+
+
+def _read_proc_meminfo() -> Dict[str, int]:
+    """Parse /proc/meminfo into a mapping of byte counts.
+
+    Raises FileNotFoundError when /proc is unavailable (non-Linux hosts);
+    that is the signal for the caller to use the portable fallbacks.
+    """
+    meminfo: Dict[str, int] = {}
+    with open("/proc/meminfo") as f:
+        for line in f:
+            parts = line.split(":")
+            if len(parts) == 2:
+                key = parts[0].strip()
+                value = parts[1].strip().replace(" kB", "")
+                try:
+                    meminfo[key] = int(value) * 1024
+                except ValueError:
+                    pass
+    return meminfo
+
+
+def _read_proc_loadavg() -> float:
+    """Return the 1-minute load average from /proc/loadavg.
+
+    Raises FileNotFoundError when /proc is unavailable (non-Linux hosts).
+    """
+    with open("/proc/loadavg") as f:
+        parts = f.read().strip().split()
+    return float(parts[0])
+
+
+def _sysconf_int(name: str) -> Optional[int]:
+    """Return a positive sysconf value, or None when it is unavailable."""
+    try:
+        value = int(os.sysconf(name))
+    except (AttributeError, ValueError, OSError, NameError):
+        return None
+    return value if value > 0 else None
+
+
+def _page_size() -> Optional[int]:
+    """Return the system page size in bytes (SC_PAGE_SIZE / SC_PAGESIZE)."""
+    for name in ("SC_PAGE_SIZE", "SC_PAGESIZE"):
+        size = _sysconf_int(name)
+        if size:
+            return size
+    return None
+
+
+def _windows_memory() -> Optional[Tuple[int, int]]:
+    """Return (total_bytes, available_bytes) via the Windows MemoryStatusEx API."""
+    if os.name != "nt":
+        return None
+
+    import ctypes
+
+    class _MemoryStatusEx(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.c_ulong),
+            ("dwMemoryLoad", ctypes.c_ulong),
+            ("ullTotalPhys", ctypes.c_ulonglong),
+            ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong),
+            ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong),
+            ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    status = _MemoryStatusEx()
+    status.dwLength = ctypes.sizeof(_MemoryStatusEx)
+    try:
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return None
+    except Exception:
+        return None
+    return int(status.ullTotalPhys), int(status.ullAvailPhys)
+
+
+def _macos_total_memory() -> Optional[int]:
+    """Return total physical memory on macOS via sysctl."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=5
+        )
+    except Exception:
+        return None
+    value = result.stdout.strip()
+    return int(value) if value.isdigit() else None
+
+
+def _macos_available_memory(page_size: int) -> Optional[int]:
+    """Return available memory on macOS from the vm_stat page counters."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        result = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+
+    reclaimable = {"pages free", "pages inactive", "pages speculative", "pages purgeable"}
+    pages = 0
+    for line in result.stdout.splitlines():
+        key, separator, value = line.partition(":")
+        if not separator:
+            continue
+        value = value.strip().rstrip(".")
+        if not value.isdigit():
+            continue
+        if key.strip().lower() in reclaimable:
+            pages += int(value)
+    return pages * page_size if pages else None
+
+
+def _fallback_memory_values() -> Tuple[Optional[int], Optional[int]]:
+    """Return (total_bytes, available_bytes) from portable sources.
+
+    Returns (None, None) when the host exposes no usable memory information.
+    """
+    total: Optional[int] = None
+    available: Optional[int] = None
+
+    windows = _windows_memory()
+    if windows is not None:
+        total, available = windows
+
+    page_size = _page_size()
+
+    if total is None:
+        pages = _sysconf_int("SC_PHYS_PAGES")
+        if pages and page_size:
+            total = pages * page_size
+
+    if total is None:
+        total = _macos_total_memory()
+
+    if available is None:
+        avail_pages = _sysconf_int("SC_AVPHYS_PAGES")
+        if avail_pages and page_size:
+            available = avail_pages * page_size
+
+    if available is None and page_size:
+        available = _macos_available_memory(page_size)
+
+    return total, available
+
+
+def _load_from_getloadavg() -> Optional[float]:
+    """Return the 1-minute load average from os.getloadavg() (Unix)."""
+    try:
+        return os.getloadavg()[0]
+    except (AttributeError, OSError):
+        return None
+
+
+def _windows_cpu_times() -> Optional[Tuple[int, int, int]]:
+    """Return (idle, kernel, user) 100ns CPU counters on Windows."""
+    if os.name != "nt":
+        return None
+
+    import ctypes
+
+    class _FileTime(ctypes.Structure):
+        _fields_ = [("dwLowDateTime", ctypes.c_ulong), ("dwHighDateTime", ctypes.c_ulong)]
+
+    idle, kernel, user = _FileTime(), _FileTime(), _FileTime()
+    try:
+        if not ctypes.windll.kernel32.GetSystemTimes(
+            ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)
+        ):
+            return None
+    except Exception:
+        return None
+
+    def to_int(value: "_FileTime") -> int:
+        return (value.dwHighDateTime << 32) | value.dwLowDateTime
+
+    return to_int(idle), to_int(kernel), to_int(user)
+
+
+def _windows_cpu_utilization() -> Optional[float]:
+    """Return Windows CPU utilisation in percent, derived from GetSystemTimes."""
+    first = _windows_cpu_times()
+    if first is None:
+        return None
+    time.sleep(0.1)
+    second = _windows_cpu_times()
+    if second is None:
+        return None
+
+    idle_delta = second[0] - first[0]
+    kernel_delta = second[1] - first[1]
+    user_delta = second[2] - first[2]
+    total_delta = kernel_delta + user_delta
+    if total_delta <= 0:
+        return None
+
+    busy_delta = (kernel_delta - idle_delta) + user_delta
+    return max(0.0, min(100.0, (busy_delta / total_delta) * 100))
+
+
 def check_memory_usage() -> Tuple[str, str, float]:
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split(":")
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip().replace(" kB", "")
-                    try:
-                        meminfo[key] = int(value) * 1024
-                    except ValueError:
-                        pass
-
+        meminfo = _read_proc_meminfo()
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        return "WARNING", f"Cannot check: {e}", 0
+    else:
         total = meminfo.get("MemTotal", 0)
         available = meminfo.get("MemAvailable", 0)
         used = total - available
@@ -174,26 +381,68 @@ def check_memory_usage() -> Tuple[str, str, float]:
             return "WARNING", f"{pct:.1f}% used", pct
         else:
             return "CRITICAL", f"{pct:.1f}% used", pct
+
+    # No /proc/meminfo (macOS, Windows, BSD, ...): use the portable sources.
+    try:
+        total, available = _fallback_memory_values()
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
+
+    if not total:
+        return "WARNING", "Cannot check: no portable memory source available", 0
+    if not available:
+        return "WARNING", (
+            f"Cannot check: {total // (1024**3)}GB total, available memory unknown"
+        ), 0
+
+    used = total - available
+    pct = (used / total) * 100
+
+    if pct < MEMORY_THRESHOLD_WARNING:
+        return "OK", f"{pct:.1f}% used ({used // (1024**3)}GB/{total // (1024**3)}GB)", pct
+    elif pct < MEMORY_THRESHOLD_CRITICAL:
+        return "WARNING", f"{pct:.1f}% used", pct
+    else:
+        return "CRITICAL", f"{pct:.1f}% used", pct
 
 
 def check_load_average() -> Tuple[str, str, float]:
     try:
-        with open("/proc/loadavg") as f:
-            parts = f.read().strip().split()
-            load = float(parts[0])
-            cpu_count = os.cpu_count() or 1
-            load_pct = (load / cpu_count) * 100
-
-            if load_pct < 70:
-                return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            elif load_pct < 90:
-                return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
-            else:
-                return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        load = _read_proc_loadavg()
+    except FileNotFoundError:
+        pass
     except Exception as e:
         return "WARNING", f"Cannot check: {e}", 0
+    else:
+        cpu_count = os.cpu_count() or 1
+        load_pct = (load / cpu_count) * 100
+
+        if load_pct < 70:
+            return "OK", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        elif load_pct < 90:
+            return "WARNING", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+        else:
+            return "CRITICAL", f"Load: {load} ({load_pct:.0f}% of {cpu_count} cores)", load
+
+    # No /proc/loadavg: prefer os.getloadavg(), then derive a load average
+    # from CPU utilisation so the output keeps the same shape everywhere.
+    cpu_count = os.cpu_count() or 1
+
+    load = _load_from_getloadavg()
+    if load is None:
+        utilization = _windows_cpu_utilization()
+        if utilization is None:
+            return "WARNING", "Cannot check: no portable load source available", 0
+        load = (utilization / 100) * cpu_count
+
+    load_pct = (load / cpu_count) * 100
+
+    if load_pct < 70:
+        return "OK", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
+    elif load_pct < 90:
+        return "WARNING", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
+    else:
+        return "CRITICAL", f"Load: {load:.2f} ({load_pct:.0f}% of {cpu_count} cores)", load
 
 
 # ---------------------------------------------------------------------------

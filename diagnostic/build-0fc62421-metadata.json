@@ -1,0 +1,69 @@
+{
+  "generated_at": "2026-11-16T14:26:15.272163+00:00",
+  "commit": "0fc62421",
+  "diagnostic_logd": "diagnostic/build-0fc62421.logd",
+  "chunked": false,
+  "chunk_size_bytes": null,
+  "password": "b963e60cc76e6a46f477",
+  "decrypt_command": "encryptly unpack diagnostic/build-0fc62421.logd <outdir> --password b963e60cc76e6a46f477",
+  "total_modules": 9,
+  "passed": 1,
+  "failed": 8,
+  "modules": [
+    {
+      "name": "backend",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "frontend",
+      "status": "PASS",
+      "elapsed_seconds": 2.922,
+      "artifact": "C:\\Users\\colin\\.minimax\\workspace\\autobounty\\work\\TentOfTrials\\TentOfTrials-main\\frontend\\dist"
+    },
+    {
+      "name": "market",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "frailbox",
+      "status": "FAIL",
+      "elapsed_seconds": 0.059,
+      "artifact": null
+    },
+    {
+      "name": "compliance",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "v2-market-stream",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "nfc-scanner",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "openapi-haskell",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    },
+    {
+      "name": "openapi-tools",
+      "status": "FAIL",
+      "elapsed_seconds": 0,
+      "artifact": null
+    }
+  ],
+  "pr_note": "Include this metadata and diagnostic\\build-0fc62421.logd in your PR. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
