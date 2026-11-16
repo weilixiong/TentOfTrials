@@ -97,6 +97,43 @@ class LogParser:
                     pass
         return None
 
+    def normalize_timestamp(self, value: Any) -> Optional[int]:
+        """Return an epoch timestamp for a structured log timestamp value.
+
+        JSON payloads carry their timestamp as an ISO-8601 string while the
+        text and nginx parsers already return epoch seconds.  Normalising here
+        keeps one timestamp contract for the whole aggregator: a report can be
+        built from JSON lines instead of aborting with a TypeError, and a value
+        that cannot be interpreted is reported as None rather than raised.
+        """
+        if value is None or isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return int(value)
+        if not isinstance(value, str):
+            return None
+
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith('Z'):
+            text = text[:-1] + '+00:00'
+        for fmt in (
+            '%Y-%m-%dT%H:%M:%S%z',
+            '%Y-%m-%dT%H:%M:%S.%f%z',
+            '%Y-%m-%dT%H:%M:%S',
+            '%Y-%m-%d %H:%M:%S%z',
+            '%Y-%m-%d %H:%M:%S',
+        ):
+            try:
+                parsed = datetime.strptime(text, fmt)
+            except ValueError:
+                continue
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return int(parsed.timestamp())
+        return None
+
     def extract_level(self, line: str) -> str:
         for pattern, level in self.LEVEL_PATTERNS:
             if re.search(pattern, line, re.IGNORECASE):
@@ -122,7 +159,9 @@ class JSONLogParser(LogParser):
             if not isinstance(entry, dict):
                 return None
             return {
-                'timestamp': entry.get('timestamp') or entry.get('time') or entry.get('@timestamp'),
+                'timestamp': self.normalize_timestamp(
+                    entry.get('timestamp') or entry.get('time') or entry.get('@timestamp')
+                ),
                 'level': entry.get('level') or entry.get('severity') or entry.get('lvl', 'info'),
                 'service': entry.get('service') or entry.get('logger') or entry.get('app'),
                 'message': entry.get('message') or entry.get('msg') or entry.get('event', ''),
