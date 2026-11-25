@@ -1,0 +1,13 @@
+{
+  "memory_check": {
+    "status": "OK",
+    "detail": "49.0% used (7GB/15GB)",
+    "percentage": 49.03092730410931
+  },
+  "load_check": {
+    "status": "OK",
+    "detail": "Load average not available on Windows",
+    "value": 0
+  },
+  "platform": "Windows"
+}

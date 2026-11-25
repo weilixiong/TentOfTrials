@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-11-25T12:35:58.352432",
+  "hostname": "DESKTOP-QO88B8S",
+  "services": {
+    "backend": {
+      "status": "CRITICAL",
+      "detail": "[WinError 10061] \u7121\u6cd5\u9023\u7dda\uff0c\u56e0\u70ba\u76ee\u6a19\u96fb\u8166\u62d2\u7d55\u9023\u7dda\u3002",
+      "code": 0,
+      "endpoint": "http://localhost:8080/health"
+    },
+    "market": {
+      "status": "CRITICAL",
+      "detail": "[WinError 10061] \u7121\u6cd5\u9023\u7dda\uff0c\u56e0\u70ba\u76ee\u6a19\u96fb\u8166\u62d2\u7d55\u9023\u7dda\u3002",
+      "code": 0,
+      "endpoint": "http://localhost:8081/health"
+    },
+    "frailbox": {
+      "status": "CRITICAL",
+      "detail": "[WinError 10061] \u7121\u6cd5\u9023\u7dda\uff0c\u56e0\u70ba\u76ee\u6a19\u96fb\u8166\u62d2\u7d55\u9023\u7dda\u3002",
+      "code": 0,
+      "endpoint": "http://localhost:8082/health"
+    },
+    "frontend": {
+      "status": "CRITICAL",
+      "detail": "[WinError 10061] \u7121\u6cd5\u9023\u7dda\uff0c\u56e0\u70ba\u76ee\u6a19\u96fb\u8166\u62d2\u7d55\u9023\u7dda\u3002",
+      "code": 0,
+      "endpoint": "http://localhost:3000/"
+    }
+  },
+  "infrastructure": {
+    "postgresql": {
+      "status": "CRITICAL",
+      "detail": "Connection refused",
+      "endpoint": "localhost:5432"
+    },
+    "redis": {
+      "status": "CRITICAL",
+      "detail": "Connection refused",
+      "endpoint": "localhost:6379"
+    },
+    "kafka": {
+      "status": "CRITICAL",
+      "detail": "Connection refused",
+      "endpoint": "localhost:9092"
+    }
+  },
+  "system": {
+    "disk": {
+      "status": "WARNING",
+      "detail": "Cannot check: module 'os' has no attribute 'statvfs'"
+    },
+    "memory": {
+      "status": "OK",
+      "detail": "49.0% used (7GB/15GB)"
+    },
+    "load": {
+      "status": "OK",
+      "detail": "Load average not available on Windows"
+    }
+  },
+  "overall_status": "DEGRADED"
+}
